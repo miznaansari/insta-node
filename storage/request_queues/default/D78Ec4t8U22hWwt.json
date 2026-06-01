@@ -1,0 +1,9 @@
+{
+	"id": "D78Ec4t8U22hWwt",
+	"json": "{\"id\":\"D78Ec4t8U22hWwt\",\"url\":\"https://www.instagram.com/instagram/\",\"loadedUrl\":\"https://www.instagram.com/instagram/\",\"uniqueKey\":\"https://www.instagram.com/instagram\",\"method\":\"GET\",\"noRetry\":false,\"retryCount\":0,\"errorMessages\":[],\"headers\":{},\"userData\":{\"__crawlee\":{\"state\":4}},\"handledAt\":\"2026-06-01T06:23:16.657Z\"}",
+	"method": "GET",
+	"orderNo": null,
+	"retryCount": 0,
+	"uniqueKey": "https://www.instagram.com/instagram",
+	"url": "https://www.instagram.com/instagram/"
+}

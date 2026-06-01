@@ -1,0 +1,35 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model InstagramProfile {
+  id             Int             @id @default(autoincrement())
+  username       String          @unique
+  fullName       String?
+  bio            String?         @db.Text
+  profilePicUrl  String?         @db.Text
+  followersCount Int?
+  followingCount Int?
+  postsCount     Int?
+  scrapedAt      DateTime        @default(now())
+  reels          InstagramReel[]
+}
+
+model InstagramReel {
+  id           Int              @id @default(autoincrement())
+  shortcode    String           @unique
+  mediaUrl     String?          @db.Text
+  thumbnailUrl String?          @db.Text
+  caption      String?          @db.Text
+  viewCount    Int?
+  likeCount    Int?
+  commentCount Int?
+  profileId    Int
+  profile      InstagramProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  scrapedAt    DateTime         @default(now())
+}
