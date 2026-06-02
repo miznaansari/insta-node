@@ -1,37 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
+model error_logs {
+  id            Int       @id @default(autoincrement()) @db.UnsignedInt
+  url           String    @db.VarChar(2048)
+  error_message String    @db.LongText
+  created_at    DateTime? @default(now()) @db.Timestamp(0)
 }
 
-model InstagramProfile {
-  id             Int             @id @default(autoincrement())
-  username       String          @unique
-  fullName       String?
-  bio            String?         @db.Text
-  profilePicUrl  String?         @db.Text
-  followersCount Int?
-  followingCount Int?
-  postsCount     Int?
-  isError        Int             @default(0)
-  scrapedAt      DateTime        @default(now())
-  reels          InstagramReel[]
+model filtered_images {
+  id                   Int                  @id @default(autoincrement()) @db.UnsignedInt
+  image_url            String               @db.VarChar(255)
+  created_at           DateTime?            @default(now()) @db.DateTime(0)
+  updated_at           DateTime?            @default(now()) @db.DateTime(0)
+  restaurant_id        Int                  @db.UnsignedInt
+  is_n8n_processed     Boolean              @default(false)
+  is_n8n_success       Boolean?
+  n8n_failed           Boolean              @default(false)
+  n8n_failed_msg       String?              @db.Text
+  restaurant_detail_v2 restaurant_detail_v2 @relation(fields: [restaurant_id], references: [id], onUpdate: Restrict, map: "fk_rd_id_to_filtered_images")
+
+  @@index([restaurant_id], map: "fk_rd_id_to_filtered_images")
 }
 
-model InstagramReel {
-  id           Int              @id @default(autoincrement())
-  shortcode    String           @unique
-  mediaUrl     String?          @db.Text
-  thumbnailUrl String?          @db.Text
-  caption      String?          @db.Text
-  viewCount    Int?
-  likeCount    Int?
-  commentCount Int?
-  isError      Int              @default(0)
-  profileId    Int
-  profile      InstagramProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  scrapedAt    DateTime         @default(now())
+model instagram_reels {
+  id                BigInt         @id @default(autoincrement()) @db.UnsignedBigInt
+  instagram_user_id BigInt         @db.UnsignedBigInt
+  caption           String?        @db.Text
+  tag               String?        @db.VarChar(2048)
+  video_url         String?        @db.VarChar(255)
+  raw_video_url     String         @unique(map: "raw_video_url") @db.VarChar(255)
+  is_processed      Boolean        @default(false)
+  created_at        DateTime?      @default(now()) @db.Timestamp(0)
+  updated_at        DateTime?      @default(now()) @db.Timestamp(0)
+  reel_thumbnail    String?        @db.VarChar(255)
+  is_rejected       Boolean?       @default(false)
+  reject_reason     String?        @db.Text
+  is_approved       Boolean?       @default(false)
+  like_count        Int?
+  comment_count     Int?
+  view_count        Int?
+  instagram_user    instagram_user @relation(fields: [instagram_user_id], references: [id], onDelete: Cascade, map: "fk_instagram_user")
+
+  @@index([instagram_user_id], map: "fk_instagram_user")
+  @@index([is_approved], map: "is_aprroved")
+  @@index([is_rejected], map: "is_rejected")
+}
+
+model instagram_user {
+  id                    BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  first_name            String?           @db.VarChar(100)
+  last_name             String?           @db.VarChar(100)
+  username              String?           @db.VarChar(150)
+  phone_number          String?           @db.VarChar(15)
+  instagram_profile_url String?           @db.VarChar(500)
+  is_processed          Boolean?          @default(false)
+  created_at            DateTime?         @default(now()) @db.Timestamp(0)
+  updated_at            DateTime?         @default(now()) @db.Timestamp(0)
+  bio                   String?           @db.Text
+  instagram_reels       instagram_reels[]
+
+  @@index([instagram_profile_url], map: "instagram_profile_url")
+  @@index([username], map: "username")
+}
+
+model knex_migrations {
+  id             Int       @id @default(autoincrement()) @db.UnsignedInt
+  name           String?   @db.VarChar(255)
+  batch          Int?
+  migration_time DateTime? @db.Timestamp(0)
+}
+
+model knex_migrations_lock {
+  index     Int  @id @default(autoincrement()) @db.UnsignedInt
+  is_locked Int?
+}
+
+model request_queue {
+  id           Int       @id @default(autoincrement()) @db.UnsignedInt
+  url          String    @unique(map: "request_queue_url_unique") @db.VarChar(768)
+  unique_key   String?   @unique(map: "request_queue_unique_key_unique") @db.VarChar(2000)
+  method       String?   @default("GET") @db.VarChar(10)
+  order_no     BigInt?
+  retry_count  Int?      @default(0)
+  handled      Boolean?  @default(false)
+  raw_json     String?   @db.LongText
+  created_at   DateTime? @default(now()) @db.Timestamp(0)
+  updated_at   DateTime? @default(now()) @db.Timestamp(0)
+  is_processed Boolean   @default(false)
+  is_valid     String?   @db.VarChar(255)
+}
+
+model restaurant_detail_v2 {
+  cafe_list_id_eats            Int?                           @db.UnsignedInt
+  id                           Int                            @id @default(autoincrement()) @db.UnsignedInt
+  title                        String                         @db.VarChar(255)
+  url                          String?                        @unique(map: "restaurant_detail_v2_url_unique") @db.VarChar(255)
+  description                  String?                        @db.Text
+  timing                       String?                        @db.Text
+  address                      String?                        @db.Text
+  features                     String?                        @db.Text
+  instagram_url                String?                        @db.VarChar(255)
+  mobile_no                    String?                        @db.VarChar(255)
+  review                       String?                        @db.Text
+  latitude                     String?                        @db.VarChar(255)
+  longitude                    String?                        @db.VarChar(255)
+  gallery                      String?                        @db.Text
+  created_at                   DateTime                       @default(now()) @db.Timestamp(0)
+  updated_at                   DateTime                       @default(now()) @db.Timestamp(0)
+  opening_and_closing_time     String?                        @db.VarChar(255)
+  Website_URL                  String?                        @db.VarChar(255)
+  price_range                  String?                        @db.VarChar(100)
+  instagram_name               String?                        @db.VarChar(255)
+  n8n_processed                Boolean?                       @default(false)
+  n8n_success                  Boolean?                       @default(false)
+  n8n_failed                   Boolean?                       @default(false)
+  n8n_failed_msg               String?                        @db.Text
+  is_img_processed             Boolean                        @default(false)
+  is_img_valid                 Boolean?
+  is_image_filtered            Boolean?                       @default(false)
+  filtered_images              filtered_images[]
+  restaurant_img_v3            restaurant_img_v3?
+  unfiltered_restaurant_img_v4 unfiltered_restaurant_img_v4[]
+
+  @@index([cafe_list_id_eats], map: "cafe_list_id_eats")
+  @@index([cafe_list_id_eats], map: "cafe_list_id_eats_2")
+  @@index([is_image_filtered], map: "is_image_filtered")
+}
+
+model restaurant_img_v3 {
+  id                   Int                  @id @default(autoincrement()) @db.UnsignedInt
+  restaurantId         Int                  @unique(map: "restaurantId") @db.UnsignedInt
+  url                  String               @unique(map: "restaurant_img_v3_url_unique") @db.VarChar(255)
+  img_url              String?              @db.Text
+  imageUrls            String?              @db.LongText
+  is_img_processed     Boolean              @default(false)
+  created_at           DateTime             @default(now()) @db.Timestamp(0)
+  updated_at           DateTime             @default(now()) @db.Timestamp(0)
+  restaurant_detail_v2 restaurant_detail_v2 @relation(fields: [restaurantId], references: [id], onUpdate: Restrict, map: "fk_restaurant_id_to_restaurant_img_v3")
+}
+
+model restaurants {
+  id           Int      @id @default(autoincrement()) @db.UnsignedInt
+  title        String?  @db.VarChar(2048)
+  is_processed Boolean? @default(false)
+  is_valid     Boolean?
+  url          String?  @unique(map: "restaurants_url_unique") @db.VarChar(2048)
+  created_at   DateTime @default(now()) @db.Timestamp(0)
+  updated_at   DateTime @default(now()) @db.Timestamp(0)
+}
+
+model unfiltered_restaurant_img_v4 {
+  id                   Int                  @id @default(autoincrement()) @db.UnsignedInt
+  image_url            String               @db.Text
+  created_at           DateTime?            @default(now()) @db.DateTime(0)
+  updated_at           DateTime?            @default(now()) @db.DateTime(0)
+  restaurant_id        Int                  @db.UnsignedInt
+  is_already_filtered  Boolean              @default(false)
+  is_rejected          Boolean              @default(false)
+  restaurant_detail_v2 restaurant_detail_v2 @relation(fields: [restaurant_id], references: [id], onUpdate: Restrict, map: "fk_restaurant_id_to_unfiltered_restaurant_img_v4")
+
+  @@index([restaurant_id], map: "fk_restaurant_id_to_unfiltered_restaurant_img_v4")
+  @@index([is_already_filtered], map: "is_already_filtered")
+  @@index([is_rejected], map: "is_rejected")
 }

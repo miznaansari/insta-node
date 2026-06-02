@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { scrapeInstagramData, extractUsername } from './scraper.js';
 import { saveProfileToDb, saveReelsToDb, prisma } from './db.js';
 import { handleBulkImportSubmit, handleBulkImportStream } from './bulkReelImport.js';
+import { initCronJobs } from './cron.js';
 
 dotenv.config();
 
@@ -71,7 +72,7 @@ const handleProfileScrape = async (req, res) => {
 
     // Fail-safe fallback: Check if we have cached profile data in the database
     try {
-      const cachedProfile = await prisma.instagramProfile.findUnique({
+      const cachedProfile = await prisma.instagram_user.findFirst({
         where: { username }
       });
       if (cachedProfile) {
@@ -131,8 +132,8 @@ const handleReelsScrape = async (req, res) => {
       dbReels = await saveReelsToDb(dbProfile.id, scraped.reels);
     } else {
       // If scraper didn't pull any fresh reels, retrieve whatever we have saved in MySQL
-      dbReels = await prisma.instagramReel.findMany({
-        where: { profileId: dbProfile.id }
+      dbReels = await prisma.instagram_reels.findMany({
+        where: { instagram_user_id: dbProfile.id }
       });
     }
 
@@ -148,12 +149,12 @@ const handleReelsScrape = async (req, res) => {
 
     // Fail-safe fallback: Check if we have cached reels in the database
     try {
-      const cachedProfile = await prisma.instagramProfile.findUnique({
+      const cachedProfile = await prisma.instagram_user.findFirst({
         where: { username }
       });
       if (cachedProfile) {
-        const cachedReels = await prisma.instagramReel.findMany({
-          where: { profileId: cachedProfile.id }
+        const cachedReels = await prisma.instagram_reels.findMany({
+          where: { instagram_user_id: cachedProfile.id }
         });
         if (cachedReels && cachedReels.length > 0) {
           console.log(`[Express API Fallback] Scraper failed. Returning ${cachedReels.length} cached database reels for "${username}".`);
@@ -204,4 +205,7 @@ app.listen(PORT, () => {
   console.log(`👤 Profile API: http://localhost:${PORT}/insta-profile`);
   console.log(`🎥 Reels API:   http://localhost:${PORT}/insta-profile-reels`);
   console.log(`======================================================\n`);
+
+  // Initialize and run scheduled database-driven import cron jobs
+  initCronJobs();
 });
