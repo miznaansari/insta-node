@@ -22,6 +22,7 @@ import {
   Check
 } from 'lucide-react';
 
+// const API_BASE_URL = 'https://api.theclevar.com';
 const API_BASE_URL = 'http://localhost:3000';
 
 function App() {
@@ -44,10 +45,11 @@ function App() {
   // JSON Import States
   const [activeMode, setActiveMode] = useState('explore'); // 'explore' or 'import'
   const [importing, setImporting] = useState(false);
-  const [importJob, setImportJob] = useState(null); // { jobId, total, existing, toCrawl }
+  const [importJob, setImportJob] = useState(null); // { jobId, total }
   const [importProgress, setImportProgress] = useState([]); // Array of progress events
+  const [importedReels, setImportedReels] = useState([]); // Successfully imported reel objects
   const [importCompleted, setImportCompleted] = useState(false);
-  const [importSummary, setImportSummary] = useState(null); // { total, skipped, crawled, success, error }
+  const [importSummary, setImportSummary] = useState(null); // { total, success, error }
   const [currentImportShortcode, setCurrentImportShortcode] = useState('');
   const [importJsonError, setImportJsonError] = useState('');
 
@@ -151,6 +153,7 @@ function App() {
   const startImport = async (profile, reels) => {
     setImporting(true);
     setImportProgress([]);
+    setImportedReels([]); // Clear previous imported items
     setCurrentImportShortcode('');
     setImportJob(null);
 
@@ -178,14 +181,15 @@ function App() {
           if (data.type === 'progress') {
             setCurrentImportShortcode(data.shortcode);
             setImportProgress(prev => [...prev, data]);
+            if (data.success && data.data) {
+              setImportedReels(prev => [...prev, data.data]);
+            }
           } else if (data.type === 'complete') {
             setImportSummary(data.summary);
             setImportCompleted(true);
             setImporting(false);
             eventSource.close();
-
-            // Load the newly synced reels into the workspace dashboard
-            fetchProfileDetailsDirect(profile);
+            // Stays strictly in the bulk import tab. Embedded reels catalog displays below!
           } else if (data.type === 'error') {
             setError(data.message);
             setImporting(false);
@@ -413,7 +417,7 @@ function App() {
             <div style={{ background: 'rgba(0,0,0,0.25)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)', textAlign: 'left', width: '100%', maxWidth: '480px' }}>
               <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.05em', display: 'block', marginBottom: '6px' }}>Expected JSON Layout:</span>
               <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '12px', color: '#ffb045', lineHeight: '1.4' }}>
-{`{
+                {`{
   "profile": "thefoodiepanda",
   "reels": [
     "https://www.instagram.com/thefoodiepanda/reel/DY7bgiFThyC/",
@@ -603,6 +607,115 @@ function App() {
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+      )}
+
+      {/* BULK IMPORTED REELS CATALOG */}
+      {activeMode === 'import' && importedReels.length > 0 && (
+        <section style={{ width: '100%', maxWidth: '1200px', marginTop: '20px', marginBottom: '40px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <div>
+              <h2 style={{ fontSize: '24px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Tv style={{ width: '26px', height: '26px', color: 'var(--insta-orange)' }} />
+                <span>Imported Reels ({importedReels.length})</span>
+              </h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '4px' }}>
+                Successfully synced directly to Cloudflare R2 and MySQL. Click any reel to play.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px' }}>
+            {importedReels.map((reel) => (
+              <div
+                key={reel.shortcode}
+                className="glass-panel"
+                onClick={() => setSelectedReel(reel)}
+                style={{
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  height: '380px',
+                  position: 'relative'
+                }}
+              >
+                {/* Image Thumbnail wrapper with overlay hover */}
+                <div style={{ position: 'relative', width: '100%', height: '260px', overflow: 'hidden', background: '#111' }}>
+                  {brokenThumbnails[reel.shortcode] && reel.mediaUrl ? (
+                    <video
+                      src={`${reel.mediaUrl}#t=1`}
+                      preload="metadata"
+                      muted
+                      playsInline
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <img
+                      src={reel.thumbnailUrl || 'https://via.placeholder.com/300?text=Instagram+Post'}
+                      alt="Reel Thumbnail"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      loading="lazy"
+                      onError={() => handleThumbnailError(reel.shortcode)}
+                    />
+                  )}
+                  {/* Hover Overlay containing metrics */}
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    background: 'rgba(0, 0, 0, 0.6)',
+                    backdropFilter: 'blur(4px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '20px',
+                    opacity: 0,
+                    transition: 'opacity 0.3s ease',
+                    color: 'white',
+                    fontWeight: '600'
+                  }}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = 1; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = 0; }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <Play style={{ width: '24px', height: '24px', fill: 'white' }} />
+                      <span style={{ fontSize: '14px' }}>{formatNumber(reel.viewCount)}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <Heart style={{ width: '22px', height: '22px', fill: 'white' }} />
+                      <span style={{ fontSize: '14px' }}>{formatNumber(reel.likeCount)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Content bottom section */}
+                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', flex: '1', justifyContent: 'space-between' }}>
+                  <p style={{
+                    fontSize: '13px',
+                    color: 'var(--text-main)',
+                    lineHeight: '1.4',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                    height: '54px'
+                  }}>
+                    {reel.caption || "No caption available."}
+                  </p>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px', marginTop: '10px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>shortcode: <code style={{ color: 'var(--insta-orange)' }}>{reel.shortcode}</code></span>
+                    {reel.mediaUrl && (
+                      <span style={{ fontSize: '10px', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', padding: '2px 8px', borderRadius: '10px', fontWeight: '700', textTransform: 'uppercase' }}>MP4 Ready</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       )}

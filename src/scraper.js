@@ -1,5 +1,8 @@
 import { PlaywrightCrawler } from 'crawlee';
 import { chromium } from 'playwright';
+import { uploadBufferToR2, isValidVideoBuffer, isInstagramCdnUrl } from './r2.js';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Extracts the username from an Instagram profile URL or a raw username string.
@@ -325,6 +328,73 @@ export function extractShortcode(urlOrShortcode) {
 }
 
 /**
+ * Helper to recursively search an object for media content matches based on shortcode.
+ */
+function findMediaInObject(obj, shortcode) {
+  if (!obj || typeof obj !== 'object') return null;
+
+  if ((obj.code === shortcode || obj.shortcode === shortcode) && 
+      (obj.video_versions || obj.image_versions2 || obj.display_url || obj.display_uri)) {
+    let mediaUrl = null;
+    let thumbnailUrl = null;
+
+    if (Array.isArray(obj.video_versions) && obj.video_versions.length > 0) {
+      mediaUrl = obj.video_versions[0].url;
+    }
+
+    if (obj.image_versions2 && Array.isArray(obj.image_versions2.candidates) && obj.image_versions2.candidates.length > 0) {
+      thumbnailUrl = obj.image_versions2.candidates[0].url;
+    } else if (obj.display_url) {
+      thumbnailUrl = obj.display_url;
+    } else if (obj.display_uri) {
+      thumbnailUrl = obj.display_uri;
+    }
+
+    const likeCount = typeof obj.like_count === 'number' ? obj.like_count : null;
+    const commentCount = typeof obj.comment_count === 'number' ? obj.comment_count : null;
+    const viewCount = typeof obj.view_count === 'number' ? obj.view_count : (typeof obj.play_count === 'number' ? obj.play_count : null);
+
+    return { mediaUrl, thumbnailUrl, likeCount, commentCount, viewCount };
+  }
+
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (val && typeof val === 'object') {
+      const result = findMediaInObject(val, shortcode);
+      if (result) return result;
+    }
+  }
+  return null;
+}
+
+/**
+ * Parses raw HTML script payloads to extract direct Instagram CDN URLs.
+ */
+export function extractCdnUrlsFromHtml(html, shortcode) {
+  if (!html) return null;
+  const scriptRegex = /<script\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+
+  while ((match = scriptRegex.exec(html)) !== null) {
+    const scriptContent = match[1].trim();
+    if (!scriptContent.includes('video_versions') && !scriptContent.includes('display_uri') && !scriptContent.includes('xdt_api__v1__media__shortcode__web_info')) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(scriptContent);
+      const result = findMediaInObject(parsed, shortcode);
+      if (result && (result.mediaUrl || result.thumbnailUrl)) {
+        return result;
+      }
+    } catch (err) {
+      // Ignore JSON parse errors
+    }
+  }
+  return null;
+}
+
+/**
  * Scrapes a single public Instagram reel by its shortcode.
  * Reuses the provided page object to navigate.
  * @param {object} page Playwright page instance
@@ -337,20 +407,109 @@ export async function scrapeSingleReelDirect(page, shortcode) {
   }
 
   const url = `https://www.instagram.com/reel/${shortcode}/`;
-  console.log(`[Scraper] Navigating to single reel: ${url}`);
 
-  await page.goto(url, {
-    waitUntil: 'domcontentloaded',
-    timeout: 20000,
-  });
+  // Setup response interceptor for streaming video bytes (if not already set up by Crawlee hook)
+  let videoChunks = page.videoChunks || [];
+  let responseHandler;
 
-  // Short delay to allow dynamic client script elements to process
-  await page.waitForTimeout(3000);
+  if (!page.videoChunks) {
+    responseHandler = async (response) => {
+      try {
+        const resUrl = response.url();
+        const headers = response.headers();
+        const contentType = headers['content-type'] || '';
+        
+        // Catch MP4/dynamic video streams
+        if (
+          contentType.includes('video/') || 
+          resUrl.includes('.mp4') || 
+          resUrl.includes('/videoplayback') || 
+          (contentType.includes('application/octet-stream') && (resUrl.includes('bytestart=') || resUrl.includes('bytelength=')))
+        ) {
+          const buffer = await response.body();
+          if (isValidVideoBuffer(buffer)) {
+            videoChunks.push({
+              url: resUrl,
+              buffer,
+              size: buffer.length,
+              contentType: contentType
+            });
+          }
+        }
+      } catch (err) {
+        // Body can be drained or closed, skip
+      }
+    };
+    page.on('response', responseHandler);
+  }
+
+  // Skip page.goto if the page is already loaded at the correct URL (e.g. by Crawlee)
+  const initialUrl = page.url() || '';
+  const isAlreadyOnPage = initialUrl.replace(/\/$/, '').includes(`/reel/${shortcode}`);
+
+  if (!isAlreadyOnPage) {
+    console.log(`[Scraper] Navigating to single reel: ${url}`);
+    try {
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 25000,
+      });
+    } catch (gotoErr) {
+      console.warn(`⚠️ [Scraper Warning] page.goto navigation timed out or encountered error: ${gotoErr.message}`);
+    }
+  } else {
+    console.log(`[Scraper] Already on reel page: ${initialUrl}`);
+  }
+
+  // Programmatically trigger muted playback to bypass autoplay policy block and force buffer streaming!
+  try {
+    await page.evaluate(() => {
+      const video = document.querySelector('video');
+      if (video) {
+        video.muted = true; // Muting is REQUIRED to satisfy browser autoplay policy without user interaction
+        video.play().catch((e) => console.log('[Scraper Browser Context] video.play() failed:', e.message));
+      }
+      
+      // Click play overlay button if present
+      const playBtn = document.querySelector('[role="button"][aria-label*="Play"], [class*="PlayButton"]');
+      if (playBtn) {
+        playBtn.click();
+      }
+    }).catch(() => {});
+  } catch (playErr) {
+    // Ignore context execution errors
+  }
+
+  // Delay to allow dynamic client script elements to process and video stream chunks to start buffering
+  await page.waitForTimeout(4000);
+
+  // Stop listening to network traffic
+  if (responseHandler) {
+    page.off('response', responseHandler);
+  } else if (page.videoResponseHandler) {
+    page.off('response', page.videoResponseHandler);
+  }
 
   // Check if we are redirected to a login page
   const currentUrl = page.url();
   if (currentUrl.includes('instagram.com/accounts/login')) {
     throw new Error('Scraping blocked. Instagram redirected to login page.');
+  }
+
+  // Step 1: Wait up to 2 seconds for a valid CDN URL in og:video or secure_url meta tags to appear
+  try {
+    await page.waitForFunction(() => {
+      const getMetaVal = (prop) => {
+        const el = document.querySelector(`meta[property="${prop}"], meta[name="${prop}"]`);
+        return el ? el.getAttribute('content') : null;
+      };
+      const url = getMetaVal('og:video') || getMetaVal('og:video:secure_url') || getMetaVal('og:video:url');
+      // If it exists and is a valid HTTP/HTTPS URL, wait is resolved
+      return url && (url.startsWith('http://') || url.startsWith('https://'));
+    }, { timeout: 2000 });
+    console.log(`[Scraper] Successfully waited for dynamic og:video meta tags to populate.`);
+  } catch (err) {
+    console.log(`[Scraper] Did not find dynamic og:video CDN meta tags within timeout. Proceeding with instant page extraction.`);
   }
 
   // Extract from Open Graph/meta tags and DOM selectors
@@ -437,10 +596,200 @@ export async function scrapeSingleReelDirect(page, shortcode) {
     }
   }
 
+  // Try to parse direct CDN URLs from raw preloaded JSON script payloads in the HTML
+  let parsedUrls = null;
+  try {
+    const rawHtml = await page.content().catch(() => '');
+    parsedUrls = extractCdnUrlsFromHtml(rawHtml, shortcode);
+    if (parsedUrls) {
+      console.log(`[Scraper] Successfully extracted direct CDN URLs from preloaded JSON payload!`);
+      if (parsedUrls.mediaUrl) console.log(`  - Video CDN URL: ${parsedUrls.mediaUrl.substring(0, 100)}...`);
+      if (parsedUrls.thumbnailUrl) console.log(`  - Thumbnail CDN URL: ${parsedUrls.thumbnailUrl.substring(0, 100)}...`);
+
+      // Override/update counts if more precise integer counts are available in the JSON
+      if (parsedUrls.likeCount !== null) {
+        likeCount = parsedUrls.likeCount;
+        console.log(`  - Like Count (JSON): ${likeCount}`);
+      }
+      if (parsedUrls.commentCount !== null) {
+        commentCount = parsedUrls.commentCount;
+        console.log(`  - Comment Count (JSON): ${commentCount}`);
+      }
+      if (parsedUrls.viewCount !== null) {
+        viewCount = parsedUrls.viewCount;
+        console.log(`  - View Count (JSON): ${viewCount}`);
+      }
+    } else {
+      console.log(`[Scraper] Preloaded JSON search did not yield direct CDN URLs for "${shortcode}".`);
+    }
+  } catch (err) {
+    console.warn(`⚠️ [Scraper Warning] JSON script payload parsing failed:`, err.message);
+  }
+
+  let mediaUrl = (parsedUrls && parsedUrls.mediaUrl) || scraped.mediaUrl;
+  let thumbnailUrl = (parsedUrls && parsedUrls.thumbnailUrl) || scraped.thumbnailUrl;
+
+  console.log(`\n==========================================`);
+  console.log(`[BULK IMPORT] Shortcode: ${shortcode}`);
+  console.log(`[BULK IMPORT] Step 1: Got Reel Video URL from Page Context: "${mediaUrl}"`);
+  console.log(`==========================================\n`);
+
+  // Layer 1: If the mediaUrl is a standard CDN URL or a local browser blob URL, download it inside the browser context!
+  if (mediaUrl && (isInstagramCdnUrl(mediaUrl) || mediaUrl.startsWith('blob:'))) {
+    try {
+      console.log(`\n==========================================`);
+      console.log(`[BULK IMPORT] Step 2: Downloading CDN/Blob video inside browser context: "${mediaUrl}"`);
+      console.log(`==========================================\n`);
+      
+      const downloadResult = await page.evaluate(async (targetUrl) => {
+        try {
+          const res = await fetch(targetUrl);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status} - ${res.statusText}`);
+          }
+          const blob = await res.blob();
+          
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              resolve({
+                dataUrl: reader.result,
+                contentType: blob.type || 'video/mp4'
+              });
+            };
+            reader.onerror = () => reject(new Error("FileReader failed"));
+            reader.readAsDataURL(blob);
+          });
+        } catch (e) {
+          return { error: e.message };
+        }
+      }, mediaUrl);
+
+      if (downloadResult && !downloadResult.error && downloadResult.dataUrl) {
+        const base64Parts = downloadResult.dataUrl.split(';base64,');
+        if (base64Parts.length === 2) {
+          const base64Str = base64Parts[1];
+          const buffer = Buffer.from(base64Str, 'base64');
+          const contentType = downloadResult.contentType;
+          
+          if (isValidVideoBuffer(buffer)) {
+            let extension = 'mp4';
+            if (contentType.includes('quicktime')) {
+              extension = 'mov';
+            }
+            
+            const key = `reels/${shortcode}.${extension}`;
+            console.log(`\n==========================================`);
+            console.log(`[BULK IMPORT] Step 3: Uploading browser-downloaded video Buffer (${buffer.length} bytes) to Cloudflare R2...`);
+            console.log(`==========================================\n`);
+            const customUrl = await uploadBufferToR2(buffer, key, contentType);
+            console.log(`\n==========================================`);
+            console.log(`[BULK IMPORT] Success: Video uploaded to Cloudflare R2: "${customUrl}"`);
+            console.log(`==========================================\n`);
+            mediaUrl = customUrl;
+          } else {
+            console.warn(`⚠️ [Scraper Warning] Browser-downloaded video buffer failed binary validation (too small or invalid signatures).`);
+          }
+        }
+      } else {
+        console.warn(`⚠️ [Scraper Warning] Browser-side CDN fetch failed:`, downloadResult?.error || 'No dataUrl returned');
+      }
+    } catch (err) {
+      console.error(`❌ [Scraper Error] Exception in browser-side CDN download:`, err.message);
+    }
+  }
+
+  // Layer 2: Process Video: If mediaUrl is a blob, missing, or browser CDN download failed, use the intercepted network buffer!
+  if (!mediaUrl || mediaUrl.startsWith('blob:') || isInstagramCdnUrl(mediaUrl)) {
+    if (videoChunks.length > 0) {
+      // Sort chunks by size descending and pick the largest one (the actual full video file / largest stream segment)
+      videoChunks.sort((a, b) => b.size - a.size);
+      const largestChunk = videoChunks[0];
+      const buffer = largestChunk.buffer;
+      const contentType = largestChunk.contentType || 'video/mp4';
+      
+      let extension = 'mp4';
+      if (contentType.includes('quicktime')) {
+        extension = 'mov';
+      }
+      
+      const key = `reels/${shortcode}.${extension}`;
+      console.log(`\n==========================================`);
+      console.log(`[BULK IMPORT] Step 2 (Fallback): Found ${videoChunks.length} intercepted network chunks. Using largest chunk (${buffer.length} bytes) as download.`);
+      console.log(`[BULK IMPORT] Step 3: Uploading intercepted video to Cloudflare R2...`);
+      console.log(`==========================================\n`);
+      try {
+        const customUrl = await uploadBufferToR2(buffer, key, contentType);
+        console.log(`\n==========================================`);
+        console.log(`[BULK IMPORT] Success: Intercepted video uploaded to Cloudflare R2: "${customUrl}"`);
+        console.log(`==========================================\n`);
+        mediaUrl = customUrl;
+      } catch (uploadErr) {
+        console.error(`[Scraper] Failed to upload intercepted video to R2 for "${shortcode}":`, uploadErr.message);
+      }
+    } else {
+      console.warn(`⚠️ [Scraper Warning] mediaUrl is blob/missing for "${shortcode}", but no video stream response was intercepted.`);
+    }
+  }
+
+  // Handle blob thumbnails inside the Playwright page context (standard static image blobs support fetch)
+  if (thumbnailUrl && thumbnailUrl.startsWith('blob:')) {
+    try {
+      console.log(`[Scraper] Detected blob: thumbnailUrl "${thumbnailUrl}" for shortcode "${shortcode}". Resolving inside browser...`);
+      
+      const blobResult = await page.evaluate(async (blobUrl) => {
+        try {
+          const res = await fetch(blobUrl);
+          const blob = await res.blob();
+          
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              resolve({
+                dataUrl: reader.result,
+                contentType: blob.type || 'image/jpeg'
+              });
+            };
+            reader.onerror = () => reject(new Error("Failed to convert blob to dataUrl"));
+            reader.readAsDataURL(blob);
+          });
+        } catch (e) {
+          return { error: e.message };
+        }
+      }, thumbnailUrl);
+
+      if (blobResult && !blobResult.error && blobResult.dataUrl) {
+        const base64Parts = blobResult.dataUrl.split(';base64,');
+        if (base64Parts.length === 2) {
+          const base64Str = base64Parts[1];
+          const buffer = Buffer.from(base64Str, 'base64');
+          const contentType = blobResult.contentType;
+          
+          let extension = 'jpg';
+          if (contentType.includes('png')) {
+            extension = 'png';
+          } else if (contentType.includes('webp')) {
+            extension = 'webp';
+          }
+          
+          const key = `thumbnails/${shortcode}.${extension}`;
+          console.log(`[Scraper] Uploading resolved blob thumbnail Buffer (${buffer.length} bytes) to R2 with key "${key}"...`);
+          const customUrl = await uploadBufferToR2(buffer, key, contentType);
+          console.log(`[Scraper] Blob thumbnail successfully uploaded to R2: "${customUrl}"`);
+          thumbnailUrl = customUrl;
+        }
+      }
+    } catch (blobErr) {
+      console.error(`[Scraper] Exception resolving blob URL for thumbnail "${shortcode}":`, blobErr.message);
+    }
+  }
+
+
+
   return {
     shortcode,
-    mediaUrl: scraped.mediaUrl,
-    thumbnailUrl: scraped.thumbnailUrl,
+    mediaUrl,
+    thumbnailUrl,
     caption: cleanCaption,
     viewCount,
     likeCount,
@@ -466,18 +815,16 @@ export async function scrapeMultipleReelsDirect(shortcodes, jobState, onProgress
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-web-security',
-      '--disable-features=IsolateOrigins,site-per-process'
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--autoplay-policy=no-user-gesture-required' // Bypass browser interaction requirements for media playback
     ],
   });
 
   const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, http://g.co/Antigravity) Chrome/120.0.0.0 Safari/537.36',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 800 },
     locale: 'en-US',
   });
-
-  const page = await context.newPage();
-  page.setDefaultNavigationTimeout(20000);
 
   try {
     for (const shortcode of shortcodes) {
@@ -485,6 +832,10 @@ export async function scrapeMultipleReelsDirect(shortcodes, jobState, onProgress
         console.log(`[Scraper] Scraping process cancelled for Job ${jobState.id}.`);
         break;
       }
+
+      // Open a completely fresh page/tab for each reel to ensure clean slate
+      const page = await context.newPage();
+      page.setDefaultNavigationTimeout(25000);
 
       try {
         const data = await scrapeSingleReelDirect(page, shortcode);
@@ -502,11 +853,15 @@ export async function scrapeMultipleReelsDirect(shortcodes, jobState, onProgress
         if (onProgress) {
           await onProgress(shortcode, false, null, err.message);
         }
+      } finally {
+        // Always close the page tab to avoid memory/network leak
+        await page.close().catch(() => {});
       }
     }
   } finally {
+    await context.close().catch(() => {});
     await browser.close().catch(() => {});
-    console.log(`[Scraper] Direct list crawling browser closed.`);
+    console.log(`[Scraper] Direct list crawling browser and context closed.`);
   }
 }
 

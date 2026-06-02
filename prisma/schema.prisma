@@ -16,6 +16,7 @@ model InstagramProfile {
   followersCount Int?
   followingCount Int?
   postsCount     Int?
+  isError        Int             @default(0)
   scrapedAt      DateTime        @default(now())
   reels          InstagramReel[]
 }
@@ -29,6 +30,7 @@ model InstagramReel {
   viewCount    Int?
   likeCount    Int?
   commentCount Int?
+  isError      Int              @default(0)
   profileId    Int
   profile      InstagramProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   scrapedAt    DateTime         @default(now())

@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { tryUploadToR2 } from './r2.js';
 
 export const prisma = new PrismaClient();
 
@@ -12,6 +13,29 @@ export async function saveProfileToDb(profileData) {
     throw new Error('Invalid profile data provided to database sync.');
   }
 
+  // Fetch the existing record from the database to prevent overwriting full data with NULLs
+  const existing = await prisma.instagramProfile.findUnique({
+    where: { username: profileData.username }
+  });
+
+  if (existing) {
+    profileData.fullName = profileData.fullName || existing.fullName;
+    profileData.bio = profileData.bio || existing.bio;
+    profileData.profilePicUrl = profileData.profilePicUrl || existing.profilePicUrl;
+    profileData.followersCount = profileData.followersCount || existing.followersCount;
+    profileData.followingCount = profileData.followingCount || existing.followingCount;
+    profileData.postsCount = profileData.postsCount || existing.postsCount;
+  }
+
+  let isError = 0;
+  if (profileData.profilePicUrl) {
+    const res = await tryUploadToR2(profileData.profilePicUrl, 'profile', profileData.username);
+    profileData.profilePicUrl = res.url;
+    if (res.error) {
+      isError = 1;
+    }
+  }
+
   console.log(`[Database] Upserting profile for username: ${profileData.username}`);
 
   return await prisma.instagramProfile.upsert({
@@ -23,6 +47,7 @@ export async function saveProfileToDb(profileData) {
       followersCount: profileData.followersCount,
       followingCount: profileData.followingCount,
       postsCount: profileData.postsCount,
+      isError: isError,
       scrapedAt: new Date(),
     },
     create: {
@@ -33,6 +58,7 @@ export async function saveProfileToDb(profileData) {
       followersCount: profileData.followersCount,
       followingCount: profileData.followingCount,
       postsCount: profileData.postsCount,
+      isError: isError,
     },
   });
 }
@@ -55,11 +81,46 @@ export async function saveReelsToDb(profileId, reelsData) {
 
   console.log(`[Database] Upserting ${reelsData.length} reels for profileId: ${profileId}`);
 
+  // Fetch existing reels to merge fields and prevent resetting them to NULL on partial updates
+  const shortcodes = reelsData.map(r => r.shortcode).filter(Boolean);
+  const existingReels = await prisma.instagramReel.findMany({
+    where: { shortcode: { in: shortcodes } }
+  });
+  const existingReelsMap = new Map(existingReels.map(r => [r.shortcode, r]));
+
   const savedReels = [];
   for (const reel of reelsData) {
     if (!reel.shortcode) continue;
 
     try {
+      const existing = existingReelsMap.get(reel.shortcode);
+      if (existing) {
+        reel.mediaUrl = reel.mediaUrl || existing.mediaUrl;
+        reel.thumbnailUrl = reel.thumbnailUrl || existing.thumbnailUrl;
+        reel.caption = reel.caption || existing.caption;
+        reel.viewCount = reel.viewCount || existing.viewCount;
+        reel.likeCount = reel.likeCount || existing.likeCount;
+        reel.commentCount = reel.commentCount || existing.commentCount;
+      }
+
+      let isError = 0;
+
+      if (reel.mediaUrl) {
+        const res = await tryUploadToR2(reel.mediaUrl, 'video', reel.shortcode);
+        reel.mediaUrl = res.url;
+        if (res.error) {
+          isError = 1;
+        }
+      }
+
+      if (reel.thumbnailUrl) {
+        const res = await tryUploadToR2(reel.thumbnailUrl, 'thumbnail', reel.shortcode);
+        reel.thumbnailUrl = res.url;
+        if (res.error) {
+          isError = 1;
+        }
+      }
+
       const saved = await prisma.instagramReel.upsert({
         where: { shortcode: reel.shortcode },
         update: {
@@ -69,6 +130,7 @@ export async function saveReelsToDb(profileId, reelsData) {
           viewCount: reel.viewCount,
           likeCount: reel.likeCount,
           commentCount: reel.commentCount,
+          isError: isError,
           profileId: profileId,
           scrapedAt: new Date(),
         },
@@ -80,6 +142,7 @@ export async function saveReelsToDb(profileId, reelsData) {
           viewCount: reel.viewCount,
           likeCount: reel.likeCount,
           commentCount: reel.commentCount,
+          isError: isError,
           profileId: profileId,
         },
       });

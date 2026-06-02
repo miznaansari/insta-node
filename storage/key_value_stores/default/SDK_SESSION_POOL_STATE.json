@@ -1,9 +1,9 @@
 {
-  "usableSessionsCount": 2,
+  "usableSessionsCount": 18,
   "retiredSessionsCount": 0,
   "sessions": [
     {
-      "id": "session_Z7b6a42Pj7",
+      "id": "session_1xo5OSIHpf",
       "cookieJar": {
         "version": "tough-cookie@6.0.1",
         "storeType": "MemoryCookieStore",
@@ -16,14 +16,14 @@
       "userData": {},
       "maxErrorScore": 3,
       "errorScoreDecrement": 0.5,
-      "expiresAt": "2026-06-02T06:27:35.003Z",
-      "createdAt": "2026-06-02T05:37:35.003Z",
+      "expiresAt": "2026-06-02T13:54:46.657Z",
+      "createdAt": "2026-06-02T13:04:46.657Z",
       "usageCount": 0,
       "maxUsageCount": 50,
       "errorScore": 0
     },
     {
-      "id": "session_VdRJo3jK7d",
+      "id": "session_6m4JoB7LHJ",
       "cookieJar": {
         "version": "tough-cookie@6.0.1",
         "storeType": "MemoryCookieStore",
@@ -34,47 +34,529 @@
         "cookies": [
           {
             "key": "csrftoken",
-            "value": "xN9im8Ic0DIjTROMXnytj2",
-            "expires": "2027-07-07T05:37:36.130Z",
+            "value": "yK-iyiC93uCJ5QAKmq9cdT",
+            "expires": "2027-07-07T13:04:49.610Z",
             "domain": "instagram.com",
             "path": "/",
             "secure": true,
             "hostOnly": false,
-            "creation": "2026-06-02T05:37:36.791Z",
-            "lastAccessed": "2026-06-02T05:37:36.791Z"
+            "creation": "2026-06-02T13:04:51.643Z",
+            "lastAccessed": "2026-06-02T13:05:40.149Z"
           },
           {
             "key": "datr",
-            "value": "H2weavo4YmbD3P3j1sxdPqKZ",
-            "expires": "2027-07-07T05:37:36.131Z",
+            "value": "8NQeat4Sa44t7Nl65tQBTptx",
+            "expires": "2027-07-07T13:04:49.610Z",
             "domain": "instagram.com",
             "path": "/",
             "secure": true,
             "httpOnly": true,
             "hostOnly": false,
-            "creation": "2026-06-02T05:37:36.798Z",
-            "lastAccessed": "2026-06-02T05:37:36.798Z"
+            "creation": "2026-06-02T13:04:51.663Z",
+            "lastAccessed": "2026-06-02T13:05:40.149Z"
           },
           {
             "key": "ig_did",
-            "value": "25A0B807-4D29-401D-8E05-FB81430B1C24",
-            "expires": "2027-06-02T05:37:36.131Z",
+            "value": "1358907C-2E53-4EEE-97B9-E5F619BD7A99",
+            "expires": "2027-06-02T13:04:49.610Z",
             "domain": "instagram.com",
             "path": "/",
             "secure": true,
             "httpOnly": true,
             "hostOnly": false,
-            "creation": "2026-06-02T05:37:36.802Z",
-            "lastAccessed": "2026-06-02T05:37:36.802Z"
+            "creation": "2026-06-02T13:04:51.667Z",
+            "lastAccessed": "2026-06-02T13:05:40.150Z"
+          },
+          {
+            "key": "wd",
+            "value": "1920x1080",
+            "expires": "2026-06-09T13:04:51.000Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:04:51.667Z",
+            "lastAccessed": "2026-06-02T13:05:40.150Z"
+          },
+          {
+            "key": "mid",
+            "value": "ah7U8QALAAEzf_43Mx3I3XE7FFzK",
+            "expires": "2027-07-07T13:04:51.000Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:04:51.668Z",
+            "lastAccessed": "2026-06-02T13:05:40.150Z"
           }
         ]
       },
       "userData": {},
       "maxErrorScore": 3,
       "errorScoreDecrement": 0.5,
-      "expiresAt": "2026-06-02T06:27:35.023Z",
-      "createdAt": "2026-06-02T05:37:35.023Z",
-      "usageCount": 1,
+      "expiresAt": "2026-06-02T13:54:46.664Z",
+      "createdAt": "2026-06-02T13:04:46.664Z",
+      "usageCount": 2,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_kz4jX8maq0",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T13:55:38.037Z",
+      "createdAt": "2026-06-02T13:05:38.037Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_DkFqaaxcpc",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T13:57:34.076Z",
+      "createdAt": "2026-06-02T13:07:34.076Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_MzeDL1n2mD",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": [
+          {
+            "key": "csrftoken",
+            "value": "cUBApON8_JSjioYp8UrafJ",
+            "expires": "2027-07-07T13:07:36.355Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:07:38.143Z",
+            "lastAccessed": "2026-06-02T13:12:46.633Z"
+          },
+          {
+            "key": "datr",
+            "value": "l9UearO8hMYcm3BvPgbIgJs_",
+            "expires": "2027-07-07T13:07:36.358Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "httpOnly": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:07:38.144Z",
+            "lastAccessed": "2026-06-02T13:12:46.634Z"
+          },
+          {
+            "key": "ig_did",
+            "value": "B7C2FF8B-BB3E-49A3-BC6D-AD96E859F2E8",
+            "expires": "2027-06-02T13:07:36.358Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "httpOnly": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:07:38.144Z",
+            "lastAccessed": "2026-06-02T13:12:46.634Z"
+          },
+          {
+            "key": "wd",
+            "value": "1920x1080",
+            "expires": "2026-06-09T13:07:38.000Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:08:34.693Z",
+            "lastAccessed": "2026-06-02T13:12:46.634Z"
+          },
+          {
+            "key": "mid",
+            "value": "ah7VlwALAAHkKpXmgD_GT23OZCZU",
+            "expires": "2027-07-07T13:07:38.000Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:08:34.694Z",
+            "lastAccessed": "2026-06-02T13:12:46.634Z"
+          },
+          {
+            "key": "ps_l",
+            "value": "1",
+            "expires": "2027-07-07T13:08:33.951Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "httpOnly": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:08:34.694Z",
+            "lastAccessed": "2026-06-02T13:12:46.634Z"
+          },
+          {
+            "key": "ps_n",
+            "value": "1",
+            "expires": "2027-07-07T13:08:33.951Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "httpOnly": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:08:34.695Z",
+            "lastAccessed": "2026-06-02T13:12:46.634Z"
+          }
+        ]
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T13:57:34.097Z",
+      "createdAt": "2026-06-02T13:07:34.097Z",
+      "usageCount": 7,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_gyO4UUgjkG",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T13:58:32.728Z",
+      "createdAt": "2026-06-02T13:08:32.728Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_LLExDjTYw6",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T13:59:22.513Z",
+      "createdAt": "2026-06-02T13:09:22.513Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_Y1jbc34nly",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:00:08.567Z",
+      "createdAt": "2026-06-02T13:10:08.567Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_eUdOEV7mT7",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:00:59.818Z",
+      "createdAt": "2026-06-02T13:10:59.818Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_o0MadqVnjP",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:01:46.071Z",
+      "createdAt": "2026-06-02T13:11:46.071Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_CZ3FQHUHro",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:02:44.809Z",
+      "createdAt": "2026-06-02T13:12:44.809Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_G5I923Ua9l",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:04:37.551Z",
+      "createdAt": "2026-06-02T13:14:37.551Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_GgfeO7rXlI",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": [
+          {
+            "key": "csrftoken",
+            "value": "YYKEDScJlxgjsejy4AnwUG",
+            "expires": "2027-07-07T13:14:39.824Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:14:42.113Z",
+            "lastAccessed": "2026-06-02T13:17:14.449Z"
+          },
+          {
+            "key": "datr",
+            "value": "P9ceap0Moyotxhp9Cfd2A38m",
+            "expires": "2027-07-07T13:14:39.824Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "httpOnly": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:14:42.113Z",
+            "lastAccessed": "2026-06-02T13:17:14.449Z"
+          },
+          {
+            "key": "ig_did",
+            "value": "58451CC1-F943-465C-99C1-0A2A55A60C73",
+            "expires": "2027-06-02T13:14:39.824Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "httpOnly": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:14:42.114Z",
+            "lastAccessed": "2026-06-02T13:17:14.449Z"
+          },
+          {
+            "key": "wd",
+            "value": "1366x768",
+            "expires": "2026-06-09T13:14:42.000Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:14:42.114Z",
+            "lastAccessed": "2026-06-02T13:17:14.449Z"
+          },
+          {
+            "key": "mid",
+            "value": "ah7XPwALAAE4h6GwEBZIabJpzHmb",
+            "expires": "2027-07-07T13:14:42.000Z",
+            "domain": "instagram.com",
+            "path": "/",
+            "secure": true,
+            "hostOnly": false,
+            "creation": "2026-06-02T13:14:42.114Z",
+            "lastAccessed": "2026-06-02T13:17:14.449Z"
+          }
+        ]
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:04:37.563Z",
+      "createdAt": "2026-06-02T13:14:37.563Z",
+      "usageCount": 3,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_w4meTpbRIq",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:05:36.519Z",
+      "createdAt": "2026-06-02T13:15:36.519Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_owDFLKObTJ",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:06:27.414Z",
+      "createdAt": "2026-06-02T13:16:27.414Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_ZhyCyruzSu",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:07:12.772Z",
+      "createdAt": "2026-06-02T13:17:12.772Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_FWup28fTIQ",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:08:06.830Z",
+      "createdAt": "2026-06-02T13:18:06.830Z",
+      "usageCount": 0,
+      "maxUsageCount": 50,
+      "errorScore": 0
+    },
+    {
+      "id": "session_0ndNDFbZ6r",
+      "cookieJar": {
+        "version": "tough-cookie@6.0.1",
+        "storeType": "MemoryCookieStore",
+        "rejectPublicSuffixes": true,
+        "enableLooseMode": false,
+        "allowSpecialUseDomain": true,
+        "prefixSecurity": "silent",
+        "cookies": []
+      },
+      "userData": {},
+      "maxErrorScore": 3,
+      "errorScoreDecrement": 0.5,
+      "expiresAt": "2026-06-02T14:08:06.840Z",
+      "createdAt": "2026-06-02T13:18:06.840Z",
+      "usageCount": 0,
       "maxUsageCount": 50,
       "errorScore": 0
     }
