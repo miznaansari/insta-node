@@ -15,7 +15,11 @@ import {
   MapPin,
   CheckCircle2,
   Calendar,
-  Sparkles
+  Sparkles,
+  Upload,
+  FileText,
+  X,
+  Check
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:3000';
@@ -36,6 +40,16 @@ function App() {
 
   // Track broken thumbnail URLs to fall back to video frame at 1s (#t=1)
   const [brokenThumbnails, setBrokenThumbnails] = useState({});
+
+  // JSON Import States
+  const [activeMode, setActiveMode] = useState('explore'); // 'explore' or 'import'
+  const [importing, setImporting] = useState(false);
+  const [importJob, setImportJob] = useState(null); // { jobId, total, existing, toCrawl }
+  const [importProgress, setImportProgress] = useState([]); // Array of progress events
+  const [importCompleted, setImportCompleted] = useState(false);
+  const [importSummary, setImportSummary] = useState(null); // { total, skipped, crawled, success, error }
+  const [currentImportShortcode, setCurrentImportShortcode] = useState('');
+  const [importJsonError, setImportJsonError] = useState('');
 
   const handleThumbnailError = (shortcode) => {
     setBrokenThumbnails(prev => ({
@@ -69,6 +83,134 @@ function App() {
   }, [loading]);
 
   /**
+   * Helper to reload profile details and display them below
+   */
+  const fetchProfileDetailsDirect = async (username) => {
+    try {
+      const profileResponse = await fetch(`${API_BASE_URL}/insta-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_url: username })
+      });
+      const profileJson = await profileResponse.json();
+      if (profileJson.success) {
+        setProfileData(profileJson.data);
+      }
+
+      const reelsResponse = await fetch(`${API_BASE_URL}/insta-profile-reels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_url: username })
+      });
+      const reelsJson = await reelsResponse.json();
+      if (reelsJson.success) {
+        setReelsData(reelsJson.data);
+      }
+      setActiveTab('reels');
+    } catch (err) {
+      console.error('Failed to reload profile details after bulk import:', err);
+    }
+  };
+
+  /**
+   * Handles JSON file choosing, parsing, and starting the import stream
+   */
+  const handleJsonUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setImportJsonError('');
+    setError(null);
+    setImportCompleted(false);
+    setImportSummary(null);
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const json = JSON.parse(event.target.result);
+        if (!json.profile) {
+          throw new Error("Required field 'profile' is missing in your JSON.");
+        }
+        if (!Array.isArray(json.reels) || json.reels.length === 0) {
+          throw new Error("Required array 'reels' is missing or empty in your JSON.");
+        }
+
+        // Trigger SSE Import job submit
+        await startImport(json.profile, json.reels);
+      } catch (err) {
+        console.error('JSON parsing / validation failed:', err);
+        setImportJsonError(err.message || 'Invalid JSON file format.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  /**
+   * Triggers POST /insta-import then opens EventSource SSE stream for progress chunks
+   */
+  const startImport = async (profile, reels) => {
+    setImporting(true);
+    setImportProgress([]);
+    setCurrentImportShortcode('');
+    setImportJob(null);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/insta-import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile, reels })
+      });
+
+      const resJson = await response.json();
+      if (!resJson.success) {
+        throw new Error(resJson.error || 'Failed to initialize bulk import.');
+      }
+
+      setImportJob(resJson);
+
+      // Connect to Server-Sent Events stream
+      const eventSource = new EventSource(`${API_BASE_URL}/insta-import-stream/${resJson.jobId}`);
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'progress') {
+            setCurrentImportShortcode(data.shortcode);
+            setImportProgress(prev => [...prev, data]);
+          } else if (data.type === 'complete') {
+            setImportSummary(data.summary);
+            setImportCompleted(true);
+            setImporting(false);
+            eventSource.close();
+
+            // Load the newly synced reels into the workspace dashboard
+            fetchProfileDetailsDirect(profile);
+          } else if (data.type === 'error') {
+            setError(data.message);
+            setImporting(false);
+            eventSource.close();
+          }
+        } catch (parseErr) {
+          console.error('Failed to parse SSE event chunk:', parseErr);
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.error('EventSource SSE stream error:', err);
+        setError('Direct bulk crawling stream connection lost.');
+        setImporting(false);
+        eventSource.close();
+      };
+
+    } catch (err) {
+      console.error('Failed to start bulk import sequence:', err);
+      setError(err.message || 'An unexpected error occurred.');
+      setImporting(false);
+    }
+  };
+
+  /**
    * Triggers the scrape APIs for the profile and reels
    */
   const handleSearch = async (e) => {
@@ -80,6 +222,7 @@ function App() {
     setProfileData(null);
     setReelsData(null);
     setActiveTab('profile');
+    setImportCompleted(false);
 
     try {
       // 1. Fetch Profile Data
@@ -143,44 +286,329 @@ function App() {
         </p>
       </header>
 
-      {/* SEARCH / INPUT PANEL */}
-      <section style={{ width: '100%', maxWidth: '750px', marginBottom: '32px' }}>
-        <form onSubmit={handleSearch} className="glass-panel" style={{ padding: '20px', display: 'flex', gap: '12px', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ flex: '1', minWidth: '280px', position: 'relative' }}>
-            <Search style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', width: '20px', height: '20px' }} />
-            <input
-              type="text"
-              placeholder="Enter Instagram profile URL or username (e.g. taylorswift)..."
-              value={profileUrl}
-              onChange={(e) => setProfileUrl(e.target.value)}
-              className="input-field"
-              style={{ paddingLeft: '48px' }}
-              disabled={loading}
-            />
-          </div>
-          <button
-            type="submit"
-            className="btn-primary animate-glow"
-            style={{ minWidth: '160px', height: '48px' }}
-            disabled={loading || !profileUrl.trim()}
-          >
-            {loading ? (
-              <>
-                <Loader2 className="animate-spin" style={{ width: '18px', height: '18px' }} />
-                <span>Crawling...</span>
-              </>
-            ) : (
-              <>
-                <Search style={{ width: '18px', height: '18px' }} />
-                <span>Explore</span>
-              </>
-            )}
-          </button>
-        </form>
+      {/* DUAL MODE TAB SELECTOR */}
+      <section style={{ width: '100%', maxWidth: '750px', marginBottom: '24px', display: 'flex', gap: '12px', background: 'rgba(255, 255, 255, 0.03)', padding: '6px', borderRadius: '30px', border: '1px solid var(--border-color)' }}>
+        <button
+          onClick={() => { setActiveMode('explore'); setError(null); }}
+          style={{
+            flex: 1,
+            padding: '12px 24px',
+            borderRadius: '24px',
+            border: 'none',
+            background: activeMode === 'explore' ? 'var(--insta-gradient)' : 'transparent',
+            color: 'white',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            transition: 'all 0.3s ease'
+          }}
+          disabled={loading || importing}
+        >
+          <Search style={{ width: '16px', height: '16px' }} />
+          <span>Explore Profile</span>
+        </button>
+        <button
+          onClick={() => { setActiveMode('import'); setError(null); }}
+          style={{
+            flex: 1,
+            padding: '12px 24px',
+            borderRadius: '24px',
+            border: 'none',
+            background: activeMode === 'import' ? 'var(--insta-gradient)' : 'transparent',
+            color: 'white',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            transition: 'all 0.3s ease'
+          }}
+          disabled={loading || importing}
+        >
+          <Upload style={{ width: '16px', height: '16px' }} />
+          <span>JSON Bulk Import</span>
+        </button>
       </section>
 
-      {/* CRAWLING ACTIVE LOADER STATE */}
-      {loading && (
+      {/* INPUT PANEL: EXPLORE MODE */}
+      {activeMode === 'explore' && (
+        <section style={{ width: '100%', maxWidth: '750px', marginBottom: '32px' }}>
+          <form onSubmit={handleSearch} className="glass-panel" style={{ padding: '20px', display: 'flex', gap: '12px', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ flex: '1', minWidth: '280px', position: 'relative' }}>
+              <Search style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', width: '20px', height: '20px' }} />
+              <input
+                type="text"
+                placeholder="Enter Instagram profile URL or username (e.g. taylorswift)..."
+                value={profileUrl}
+                onChange={(e) => setProfileUrl(e.target.value)}
+                className="input-field"
+                style={{ paddingLeft: '48px' }}
+                disabled={loading}
+              />
+            </div>
+            <button
+              type="submit"
+              className="btn-primary animate-glow"
+              style={{ minWidth: '160px', height: '48px' }}
+              disabled={loading || !profileUrl.trim()}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" style={{ width: '18px', height: '18px' }} />
+                  <span>Crawling...</span>
+                </>
+              ) : (
+                <>
+                  <Search style={{ width: '18px', height: '18px' }} />
+                  <span>Explore</span>
+                </>
+              )}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {/* INPUT PANEL: JSON BULK IMPORT MODE */}
+      {activeMode === 'import' && !importing && (
+        <section style={{ width: '100%', maxWidth: '750px', marginBottom: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div className="glass-panel" style={{ padding: '32px', textAlign: 'center', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(255, 176, 69, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffb045' }}>
+              <FileText style={{ width: '32px', height: '32px' }} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>Upload Instagram Reels JSON</h3>
+              <p style={{ fontSize: '14px', color: 'var(--text-muted)', maxWidth: '480px', margin: '0 auto', lineHeight: '1.6' }}>
+                Deduplicate and sync a structured reel list in real time. Items already in the database will be skipped instantly, while the rest are processed sequentially.
+              </p>
+            </div>
+
+            <div style={{ width: '100%', maxWidth: '400px' }}>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleJsonUpload}
+                style={{ display: 'none' }}
+                id="json-file-input"
+              />
+              <label
+                htmlFor="json-file-input"
+                className="btn-primary animate-glow"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', cursor: 'pointer', width: '100%', justifyContent: 'center', height: '50px' }}
+              >
+                <Upload style={{ width: '18px', height: '18px' }} />
+                <span>Choose JSON File</span>
+              </label>
+            </div>
+
+            {importJsonError && (
+              <p style={{ color: '#ef4444', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
+                <AlertCircle style={{ width: '14px', height: '14px' }} /> {importJsonError}
+              </p>
+            )}
+
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)', textAlign: 'left', width: '100%', maxWidth: '480px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.05em', display: 'block', marginBottom: '6px' }}>Expected JSON Layout:</span>
+              <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '12px', color: '#ffb045', lineHeight: '1.4' }}>
+{`{
+  "profile": "thefoodiepanda",
+  "reels": [
+    "https://www.instagram.com/thefoodiepanda/reel/DY7bgiFThyC/",
+    "DY4UB7Mz0v3"
+  ]
+}`}
+              </pre>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* SSE BULK IMPORT ACTIVE LOADER & EVENT STREAM PROGRESS */}
+      {importing && importJob && (
+        <section style={{ width: '100%', maxWidth: '750px', marginBottom: '32px' }}>
+          <div className="glass-panel" style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Loader2 className="animate-spin" style={{ color: 'var(--insta-purple)', width: '20px', height: '20px' }} />
+                  <span>Streaming Bulk Import Session</span>
+                </h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Target Profile: <strong>@{importJob.profile}</strong> | Job ID: <code style={{ color: 'var(--insta-orange)' }}>{importJob.jobId}</code></span>
+              </div>
+              <span style={{ fontSize: '11px', background: 'rgba(255, 176, 69, 0.12)', color: '#ffb045', padding: '4px 10px', borderRadius: '12px', fontWeight: '700', textTransform: 'uppercase' }}>Streaming Live</span>
+            </div>
+
+            {/* SSE Progress Stats */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>Total</span>
+                <span style={{ fontSize: '20px', fontWeight: '800' }}>{importJob.total}</span>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>Processed</span>
+                <span style={{ fontSize: '20px', fontWeight: '800', color: 'var(--insta-purple)' }}>{importProgress.length}</span>
+              </div>
+              <div style={{ background: 'rgba(34, 197, 94, 0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(34, 197, 94, 0.1)', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: '#4ade80', display: 'block', textTransform: 'uppercase' }}>Success</span>
+                <span style={{ fontSize: '20px', fontWeight: '800', color: '#4ade80' }}>{importProgress.filter(p => p.success).length}</span>
+              </div>
+              <div style={{ background: 'rgba(239, 68, 68, 0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.1)', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: '#ef4444', display: 'block', textTransform: 'uppercase' }}>Errors</span>
+                <span style={{ fontSize: '20px', fontWeight: '800', color: '#ef4444' }}>{importProgress.filter(p => !p.success).length}</span>
+              </div>
+            </div>
+
+            {/* SSE Progress Bar */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+                  {currentImportShortcode ? (
+                    <>Crawling shortcode: <code style={{ color: 'var(--insta-orange)' }}>{currentImportShortcode}</code>...</>
+                  ) : (
+                    'Initializing sequential Playwright crawler...'
+                  )}
+                </span>
+                <span style={{ fontWeight: '700' }}>
+                  {Math.round((importProgress.length / importJob.total) * 100)}%
+                </span>
+              </div>
+              <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    background: 'var(--insta-gradient)',
+                    width: `${(importProgress.length / importJob.total) * 100}%`,
+                    transition: 'width 0.3s ease-out'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Live Streaming Logs */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live Connection Log Stream:</span>
+              <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', borderRadius: '10px', height: '180px', overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px', fontFamily: 'monospace', fontSize: '12px', scrollBehavior: 'smooth' }}>
+                {importProgress.length === 0 ? (
+                  <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Awaiting initial server-sent chunks...</span>
+                ) : (
+                  [...importProgress].reverse().map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '4px' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {item.success ? (
+                          <CheckCircle2 style={{ width: '12px', height: '12px', color: '#4ade80' }} />
+                        ) : (
+                          <AlertCircle style={{ width: '12px', height: '12px', color: '#ef4444' }} />
+                        )}
+                        <span style={{ color: 'white' }}>shortcode: <strong>{item.shortcode}</strong></span>
+                      </span>
+                      <span style={{ fontSize: '11px', fontWeight: '700' }}>
+                        {item.skipped ? (
+                          <span style={{ color: '#22c55e', background: 'rgba(34, 197, 94, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>Skipped (In DB)</span>
+                        ) : item.success ? (
+                          <span style={{ color: '#ffb045', background: 'rgba(255, 176, 69, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>Scraped</span>
+                        ) : (
+                          <span style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>Failed</span>
+                        )}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>
+                💡 Page refresh closes connection and aborts Playwright browser sequentially.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* SSE BULK IMPORT FINAL SUMMARY REPORT CARD */}
+      {importCompleted && importSummary && (
+        <section style={{ width: '100%', maxWidth: '750px', marginBottom: '32px' }}>
+          <div className="glass-panel" style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px', borderLeft: '4px solid #22c55e', background: 'rgba(34, 197, 94, 0.01)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '20px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px', color: '#4ade80' }}>
+                  <CheckCircle2 style={{ width: '22px', height: '22px' }} />
+                  <span>Bulk Import Stream Complete!</span>
+                </h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Real-time crawler report fully generated.</span>
+              </div>
+              <button
+                onClick={() => { setImportCompleted(false); setImportSummary(null); setImportProgress([]); }}
+                style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: 'var(--text-muted)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <X style={{ width: '14px', height: '14px' }} /> Clear Report
+              </button>
+            </div>
+
+            {/* Summary Metrics */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>TOTAL</span>
+                <span style={{ fontSize: '16px', fontWeight: '800' }}>{importSummary.total}</span>
+              </div>
+              <div style={{ background: 'rgba(34, 197, 94, 0.05)', padding: '10px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(34, 197, 94, 0.1)' }}>
+                <span style={{ fontSize: '10px', color: '#4ade80', display: 'block' }}>SKIPPED</span>
+                <span style={{ fontSize: '16px', fontWeight: '800', color: '#4ade80' }}>{importSummary.skipped}</span>
+              </div>
+              <div style={{ background: 'rgba(255, 176, 69, 0.05)', padding: '10px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 176, 69, 0.1)' }}>
+                <span style={{ fontSize: '10px', color: '#ffb045', display: 'block' }}>CRAWLED</span>
+                <span style={{ fontSize: '16px', fontWeight: '800', color: '#ffb045' }}>{importSummary.crawled}</span>
+              </div>
+              <div style={{ background: 'rgba(34, 197, 94, 0.1)', padding: '10px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
+                <span style={{ fontSize: '10px', color: '#22c55e', display: 'block' }}>SUCCESS</span>
+                <span style={{ fontSize: '16px', fontWeight: '800', color: '#22c55e' }}>{importSummary.success}</span>
+              </div>
+              <div style={{ background: 'rgba(239, 68, 68, 0.05)', padding: '10px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(239, 68, 68, 0.1)' }}>
+                <span style={{ fontSize: '10px', color: '#ef4444', display: 'block' }}>ERRORS</span>
+                <span style={{ fontSize: '16px', fontWeight: '800', color: '#ef4444' }}>{importSummary.error}</span>
+              </div>
+            </div>
+
+            {/* Split Results Tables */}
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '260px', background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(34, 197, 94, 0.1)' }}>
+                <h4 style={{ fontSize: '13px', color: '#4ade80', fontWeight: '700', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckCircle2 style={{ width: '14px', height: '14px' }} />
+                  <span>Successful Imports ({importProgress.filter(p => p.success).length})</span>
+                </h4>
+                <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', fontFamily: 'monospace' }}>
+                  {importProgress.filter(p => p.success).map((item, idx) => (
+                    <div key={idx} style={{ color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>✨ {item.shortcode}</span>
+                      <span style={{ color: item.skipped ? '#22c55e' : '#ffb045', fontSize: '11px' }}>{item.skipped ? 'Archived' : 'Newly Synced'}</span>
+                    </div>
+                  ))}
+                  {importProgress.filter(p => p.success).length === 0 && <span style={{ color: 'var(--text-muted)' }}>None</span>}
+                </div>
+              </div>
+
+              <div style={{ flex: 1, minWidth: '260px', background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.1)' }}>
+                <h4 style={{ fontSize: '13px', color: '#f87171', fontWeight: '700', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertCircle style={{ width: '14px', height: '14px' }} />
+                  <span>Scraping Failures ({importProgress.filter(p => !p.success).length})</span>
+                </h4>
+                <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px', fontFamily: 'monospace' }}>
+                  {importProgress.filter(p => !p.success).map((item, idx) => (
+                    <div key={idx} style={{ color: '#f87171', display: 'flex', flexDirection: 'column', gap: '2px', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '4px' }}>
+                      <span>❌ shortcode: <strong>{item.shortcode}</strong></span>
+                      <span style={{ fontStyle: 'italic', color: 'var(--text-muted)', paddingLeft: '14px' }}>Reason: {item.error}</span>
+                    </div>
+                  ))}
+                  {importProgress.filter(p => !p.success).length === 0 && <span style={{ color: 'var(--text-muted)' }}>None</span>}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* CRAWLING ACTIVE LOADER STATE (EXPLORE MODE) */}
+      {loading && activeMode === 'explore' && (
         <section style={{ width: '100%', maxWidth: '750px', textAlign: 'center', margin: '40px 0' }}>
           <div className="glass-panel" style={{ padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
             <div style={{ position: 'relative', display: 'inline-flex' }}>
@@ -219,6 +647,7 @@ function App() {
           </div>
         </section>
       )}
+
 
       {/* SCRAPED PROFILE RESULTS CONTENT */}
       {profileData && !loading && (

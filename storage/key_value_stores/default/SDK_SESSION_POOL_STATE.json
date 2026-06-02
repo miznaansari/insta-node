@@ -3,7 +3,7 @@
   "retiredSessionsCount": 0,
   "sessions": [
     {
-      "id": "session_d09d3vMr2p",
+      "id": "session_Z7b6a42Pj7",
       "cookieJar": {
         "version": "tough-cookie@6.0.1",
         "storeType": "MemoryCookieStore",
@@ -16,14 +16,14 @@
       "userData": {},
       "maxErrorScore": 3,
       "errorScoreDecrement": 0.5,
-      "expiresAt": "2026-06-01T07:12:56.539Z",
-      "createdAt": "2026-06-01T06:22:56.539Z",
+      "expiresAt": "2026-06-02T06:27:35.003Z",
+      "createdAt": "2026-06-02T05:37:35.003Z",
       "usageCount": 0,
       "maxUsageCount": 50,
       "errorScore": 0
     },
     {
-      "id": "session_JkpGfJTHLq",
+      "id": "session_VdRJo3jK7d",
       "cookieJar": {
         "version": "tough-cookie@6.0.1",
         "storeType": "MemoryCookieStore",
@@ -34,46 +34,46 @@
         "cookies": [
           {
             "key": "csrftoken",
-            "value": "J472PDNIpQ2cgcEUe8VVZo",
-            "expires": "2027-07-06T06:23:03.155Z",
+            "value": "xN9im8Ic0DIjTROMXnytj2",
+            "expires": "2027-07-07T05:37:36.130Z",
             "domain": "instagram.com",
             "path": "/",
             "secure": true,
             "hostOnly": false,
-            "creation": "2026-06-01T06:23:06.659Z",
-            "lastAccessed": "2026-06-01T06:23:06.659Z"
+            "creation": "2026-06-02T05:37:36.791Z",
+            "lastAccessed": "2026-06-02T05:37:36.791Z"
           },
           {
             "key": "datr",
-            "value": "RiUdaqgYjexKvwQWcU4Kcxv1",
-            "expires": "2027-07-06T06:23:03.157Z",
+            "value": "H2weavo4YmbD3P3j1sxdPqKZ",
+            "expires": "2027-07-07T05:37:36.131Z",
             "domain": "instagram.com",
             "path": "/",
             "secure": true,
             "httpOnly": true,
             "hostOnly": false,
-            "creation": "2026-06-01T06:23:06.713Z",
-            "lastAccessed": "2026-06-01T06:23:06.713Z"
+            "creation": "2026-06-02T05:37:36.798Z",
+            "lastAccessed": "2026-06-02T05:37:36.798Z"
           },
           {
             "key": "ig_did",
-            "value": "ADAB2DF8-DF85-4AB4-878F-33D0F9FCDE16",
-            "expires": "2027-06-01T06:23:03.157Z",
+            "value": "25A0B807-4D29-401D-8E05-FB81430B1C24",
+            "expires": "2027-06-02T05:37:36.131Z",
             "domain": "instagram.com",
             "path": "/",
             "secure": true,
             "httpOnly": true,
             "hostOnly": false,
-            "creation": "2026-06-01T06:23:06.723Z",
-            "lastAccessed": "2026-06-01T06:23:06.723Z"
+            "creation": "2026-06-02T05:37:36.802Z",
+            "lastAccessed": "2026-06-02T05:37:36.802Z"
           }
         ]
       },
       "userData": {},
       "maxErrorScore": 3,
       "errorScoreDecrement": 0.5,
-      "expiresAt": "2026-06-01T07:12:56.573Z",
-      "createdAt": "2026-06-01T06:22:56.573Z",
+      "expiresAt": "2026-06-02T06:27:35.023Z",
+      "createdAt": "2026-06-02T05:37:35.023Z",
       "usageCount": 1,
       "maxUsageCount": 50,
       "errorScore": 0

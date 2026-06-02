@@ -9,17 +9,17 @@ import { chromium } from 'playwright';
 export function extractUsername(urlOrUsername) {
   if (!urlOrUsername) return '';
   let str = urlOrUsername.trim();
-  
+
   // Remove query parameters
   if (str.includes('?')) {
     str = str.split('?')[0];
   }
-  
+
   // Remove trailing slash
   if (str.endsWith('/')) {
     str = str.slice(0, -1);
   }
-  
+
   try {
     if (str.startsWith('http://') || str.startsWith('https://')) {
       const url = new URL(str);
@@ -29,7 +29,7 @@ export function extractUsername(urlOrUsername) {
   } catch (e) {
     // Ignore and fall back
   }
-  
+
   const match = str.match(/(?:instagram\.com\/)?([a-zA-Z0-9_\.]+)/i);
   return match ? match[1] : str;
 }
@@ -43,7 +43,7 @@ function parseAbbreviatedNumber(str) {
   if (!str) return null;
   let cleanStr = str.replace(/,/g, '').trim().toUpperCase();
   let multiplier = 1;
-  
+
   if (cleanStr.endsWith('M')) {
     multiplier = 1000000;
     cleanStr = cleanStr.slice(0, -1);
@@ -54,7 +54,7 @@ function parseAbbreviatedNumber(str) {
     multiplier = 1000000000;
     cleanStr = cleanStr.slice(0, -1);
   }
-  
+
   const num = parseFloat(cleanStr);
   return isNaN(num) ? null : Math.round(num * multiplier);
 }
@@ -96,8 +96,8 @@ export async function scrapeInstagramData(targetUsername) {
     launchContext: {
       launchOptions: {
         args: [
-          '--disable-gpu', 
-          '--no-sandbox', 
+          '--disable-gpu',
+          '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-web-security',
           '--disable-features=IsolateOrigins,site-per-process'
@@ -106,14 +106,14 @@ export async function scrapeInstagramData(targetUsername) {
     },
     async requestHandler({ page, log }) {
       log.info(`[Scraper] Accessing Instagram profile page for ${username}`);
-      
+
       // Navigate with human-like user agent
       await page.setExtraHTTPHeaders({
         'Accept-Language': 'en-US,en;q=0.9',
       });
 
       const profileUrl = `https://www.instagram.com/${username}/`;
-      
+
       try {
         await page.goto(profileUrl, {
           waitUntil: 'commit',
@@ -150,7 +150,7 @@ export async function scrapeInstagramData(targetUsername) {
       if (apiResult && apiResult.data && apiResult.data.user) {
         log.info(`[Scraper] Layer 1 Succeeded! Parsing GraphQL JSON.`);
         const user = apiResult.data.user;
-        
+
         scrapedResult.profile = {
           username: user.username || username,
           fullName: user.full_name || null,
@@ -176,14 +176,14 @@ export async function scrapeInstagramData(targetUsername) {
             commentCount: node.edge_media_to_comment?.count || null,
           };
         });
-        
+
         return; // Success! No need for fallback.
       }
 
       log.warning(`[Scraper] Layer 1 failed: ${apiResult?.error || 'No user data'}. Proceeding to Layer 2 (Meta/DOM Parsing).`);
 
       // --- LAYER 2: Fallback Meta Tag / DOM Selector Extraction ---
-      
+
       // Parse description meta tag
       const description = await page.locator('meta[property="og:description"], meta[name="description"]')
         .first()
@@ -238,11 +238,11 @@ export async function scrapeInstagramData(targetUsername) {
           const img = a.querySelector('img');
           const imgSrc = img ? img.getAttribute('src') : null;
           const imgAlt = img ? img.getAttribute('alt') : null;
-          
+
           // Extract shortcode from href like "/p/C8qJ0N8u9Xy/"
           const parts = href.split('/').filter(Boolean);
           const shortcode = parts[parts.length - 1] || href;
-          
+
           return {
             shortcode,
             thumbnailUrl: imgSrc,
@@ -269,13 +269,244 @@ export async function scrapeInstagramData(targetUsername) {
 
       log.info(`[Scraper] Scraped ${scrapedResult.reels.length} posts/reels from DOM.`);
     },
-    
+
     failedRequestHandler({ request, log }) {
       log.error(`[Scraper] Request ${request.url} failed completely.`);
     },
   });
 
   await crawler.run([`https://www.instagram.com/${username}/`]);
-  
+
   return scrapedResult;
 }
+
+/**
+ * Extracts the shortcode from an Instagram reel/post URL or returns the shortcode itself.
+ * @param {string} urlOrShortcode 
+ * @returns {string}
+ */
+export function extractShortcode(urlOrShortcode) {
+  if (!urlOrShortcode) return '';
+  let str = urlOrShortcode.trim();
+
+  // Remove query parameters
+  if (str.includes('?')) {
+    str = str.split('?')[0];
+  }
+
+  // Remove trailing slash
+  if (str.endsWith('/')) {
+    str = str.slice(0, -1);
+  }
+
+  try {
+    if (str.startsWith('http://') || str.startsWith('https://')) {
+      const url = new URL(str);
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      
+      const reelIndex = pathParts.indexOf('reel');
+      if (reelIndex !== -1 && pathParts[reelIndex + 1]) {
+        return pathParts[reelIndex + 1];
+      }
+      
+      const pIndex = pathParts.indexOf('p');
+      if (pIndex !== -1 && pathParts[pIndex + 1]) {
+        return pathParts[pIndex + 1];
+      }
+
+      return pathParts[pathParts.length - 1] || '';
+    }
+  } catch (e) {
+    // Ignore and fall back
+  }
+
+  const match = str.match(/(?:reel|p)\/([a-zA-Z0-9_\-]+)/i);
+  return match ? match[1] : str;
+}
+
+/**
+ * Scrapes a single public Instagram reel by its shortcode.
+ * Reuses the provided page object to navigate.
+ * @param {object} page Playwright page instance
+ * @param {string} shortcode Reel shortcode
+ * @returns {Promise<object>} Scraped reel data
+ */
+export async function scrapeSingleReelDirect(page, shortcode) {
+  if (!shortcode) {
+    throw new Error('Shortcode is required to scrape a single reel.');
+  }
+
+  const url = `https://www.instagram.com/reel/${shortcode}/`;
+  console.log(`[Scraper] Navigating to single reel: ${url}`);
+
+  await page.goto(url, {
+    waitUntil: 'domcontentloaded',
+    timeout: 20000,
+  });
+
+  // Short delay to allow dynamic client script elements to process
+  await page.waitForTimeout(3000);
+
+  // Check if we are redirected to a login page
+  const currentUrl = page.url();
+  if (currentUrl.includes('instagram.com/accounts/login')) {
+    throw new Error('Scraping blocked. Instagram redirected to login page.');
+  }
+
+  // Extract from Open Graph/meta tags and DOM selectors
+  const scraped = await page.evaluate((scode) => {
+    const getMeta = (prop) => {
+      const el = document.querySelector(`meta[property="${prop}"], meta[name="${prop}"]`);
+      return el ? el.getAttribute('content') : null;
+    };
+
+    // Extract video url from og:video or video tag
+    let mediaUrl = getMeta('og:video') || getMeta('og:video:secure_url') || getMeta('og:video:url');
+    if (!mediaUrl) {
+      const videoEl = document.querySelector('video');
+      if (videoEl) {
+        mediaUrl = videoEl.getAttribute('src');
+      }
+    }
+
+    // Extract thumbnail from og:image or video poster
+    let thumbnailUrl = getMeta('og:image');
+    if (!thumbnailUrl) {
+      const poster = document.querySelector('video')?.getAttribute('poster');
+      if (poster) {
+        thumbnailUrl = poster;
+      }
+    }
+
+    // Extract title / description
+    let caption = getMeta('og:title') || getMeta('og:description') || getMeta('description');
+
+    return {
+      mediaUrl,
+      thumbnailUrl,
+      caption,
+    };
+  }, shortcode);
+
+  // Parse counts (likes, comments, views) from description meta tag if available
+  let likeCount = null;
+  let commentCount = null;
+  let viewCount = null;
+
+  const descriptionMeta = await page.locator('meta[name="description"], meta[property="og:description"]')
+    .first()
+    .getAttribute('content')
+    .catch(() => null);
+
+  if (descriptionMeta) {
+    const likesMatch = descriptionMeta.match(/([\d.,\w]+)\s*Likes/i);
+    const commentsMatch = descriptionMeta.match(/([\d.,\w]+)\s*Comments/i);
+    const viewsMatch = descriptionMeta.match(/([\d.,\w]+)\s*Views/i);
+
+    const parseAbbrev = (str) => {
+      if (!str) return null;
+      let cleanStr = str.replace(/,/g, '').trim().toUpperCase();
+      let multiplier = 1;
+      if (cleanStr.endsWith('M')) {
+        multiplier = 1000000;
+        cleanStr = cleanStr.slice(0, -1);
+      } else if (cleanStr.endsWith('K')) {
+        multiplier = 1000;
+        cleanStr = cleanStr.slice(0, -1);
+      }
+      const num = parseFloat(cleanStr);
+      return isNaN(num) ? null : Math.round(num * multiplier);
+    };
+
+    if (likesMatch) likeCount = parseAbbrev(likesMatch[1]);
+    if (commentsMatch) commentCount = parseAbbrev(commentsMatch[1]);
+    if (viewsMatch) viewCount = parseAbbrev(viewsMatch[1]);
+  }
+
+  // Clean the caption
+  let cleanCaption = scraped.caption || '';
+  if (cleanCaption) {
+    const match = cleanCaption.match(/.*on Instagram:\s*["']([\s\S]*)["']/i);
+    if (match && match[1]) {
+      cleanCaption = match[1];
+    } else {
+      const match2 = cleanCaption.match(/.*by\s+[^:]+:\s*["']([\s\S]*)["']/i);
+      if (match2 && match2[1]) {
+        cleanCaption = match2[1];
+      }
+    }
+  }
+
+  return {
+    shortcode,
+    mediaUrl: scraped.mediaUrl,
+    thumbnailUrl: scraped.thumbnailUrl,
+    caption: cleanCaption,
+    viewCount,
+    likeCount,
+    commentCount,
+    scrapedAt: new Date()
+  };
+}
+
+/**
+ * Direct scraper for a list of reels shortcodes sequentially reusing browser context.
+ * Supports cancellation via jobState.cancelled.
+ * @param {Array<string>} shortcodes
+ * @param {object} jobState Shared state object with job details and cancel flag
+ * @param {function} onProgress Callback for each completion
+ */
+export async function scrapeMultipleReelsDirect(shortcodes, jobState, onProgress) {
+  console.log(`[Scraper] Starting direct list scraping for ${shortcodes.length} reels.`);
+
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      '--disable-gpu',
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-web-security',
+      '--disable-features=IsolateOrigins,site-per-process'
+    ],
+  });
+
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, http://g.co/Antigravity) Chrome/120.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 800 },
+    locale: 'en-US',
+  });
+
+  const page = await context.newPage();
+  page.setDefaultNavigationTimeout(20000);
+
+  try {
+    for (const shortcode of shortcodes) {
+      if (jobState && jobState.cancelled) {
+        console.log(`[Scraper] Scraping process cancelled for Job ${jobState.id}.`);
+        break;
+      }
+
+      try {
+        const data = await scrapeSingleReelDirect(page, shortcode);
+        
+        if (jobState && jobState.cancelled) break;
+
+        if (onProgress) {
+          await onProgress(shortcode, true, data);
+        }
+      } catch (err) {
+        console.error(`[Scraper] Error crawling shortcode ${shortcode}:`, err.message);
+        
+        if (jobState && jobState.cancelled) break;
+
+        if (onProgress) {
+          await onProgress(shortcode, false, null, err.message);
+        }
+      }
+    }
+  } finally {
+    await browser.close().catch(() => {});
+    console.log(`[Scraper] Direct list crawling browser closed.`);
+  }
+}
+

@@ -1,0 +1,9 @@
+{
+	"id": "q1ucjQgMSFZhO0s",
+	"json": "{\"id\":\"q1ucjQgMSFZhO0s\",\"url\":\"https://www.instagram.com/_jaipur.foodies_/\",\"loadedUrl\":\"https://www.instagram.com/_jaipur.foodies_/\",\"uniqueKey\":\"https://www.instagram.com/_jaipur.foodies_\",\"method\":\"GET\",\"noRetry\":false,\"retryCount\":0,\"errorMessages\":[],\"headers\":{},\"userData\":{\"__crawlee\":{\"state\":4}},\"handledAt\":\"2026-06-02T05:37:45.208Z\"}",
+	"method": "GET",
+	"orderNo": null,
+	"retryCount": 0,
+	"uniqueKey": "https://www.instagram.com/_jaipur.foodies_",
+	"url": "https://www.instagram.com/_jaipur.foodies_/"
+}
