@@ -1,7 +1,7 @@
 import nodeCron from 'node-cron';
 import { chromium } from 'playwright';
-import { prisma, findOrCreateUser, saveReelsToDb } from './db.js';
-import { scrapeSingleReelDirect } from './scraper.js';
+import { prisma, findOrCreateUser, saveReelsToDb, saveProfileToDb } from './db.js';
+import { scrapeSingleReelDirect, scrapeInstagramData, extractUsername } from './scraper.js';
 
 let isCronRunning = false;
 
@@ -234,23 +234,124 @@ export async function runCronImport() {
   }
 }
 
+let isUserProfileCronRunning = false;
+
 /**
- * Initializes and schedules the cron job to run every 1 minute.
+ * Main execution logic for the DB-driven user profile cron importer.
+ */
+export async function runUserProfileCron() {
+  if (isUserProfileCronRunning) {
+    console.log(`[User Profile Cron] ⏳ A user profile cron execution is already running. Skipping this cycle.`);
+    return;
+  }
+
+  isUserProfileCronRunning = true;
+  console.log(`\n======================================================`);
+  console.log(`⏱️ [User Profile Cron] Starting DB-driven user profile crawl...`);
+  console.log(`======================================================`);
+
+  try {
+    // 1. Fetch unprocessed users from the database
+    const pendingUsers = await prisma.instagram_user.findMany({
+      where: {
+        OR: [
+          { is_processed: false },
+          { is_processed: null }
+        ]
+      },
+      take: 5, // Process in small batches to respect rate limits and reduce memory footprints
+      orderBy: { created_at: 'asc' }
+    });
+
+    if (pendingUsers.length === 0) {
+      console.log(`[User Profile Cron] No pending users to process. Database is up to date.`);
+      isUserProfileCronRunning = false;
+      return;
+    }
+
+    console.log(`[User Profile Cron] Found ${pendingUsers.length} unprocessed profiles. Processing sequentially...`);
+
+    for (let i = 0; i < pendingUsers.length; i++) {
+      const user = pendingUsers[i];
+      console.log(`\n------------------------------------------------------`);
+      console.log(`[User Profile Cron] [${i + 1}/${pendingUsers.length}] Processing User ID: ${user.id}`);
+      
+      const targetUser = user.username || (user.instagram_profile_url ? extractUsername(user.instagram_profile_url) : null);
+      console.log(`[User Profile Cron] Username: "${targetUser}"`);
+
+      if (!targetUser) {
+        console.error(`❌ [User Profile Cron] Invalid username or profile url for user ID: ${user.id}`);
+        await prisma.instagram_user.update({
+          where: { id: user.id },
+          data: {
+            is_processed: true,
+            updated_at: new Date()
+          }
+        });
+        continue;
+      }
+
+      try {
+        // Run standard Crawlee profile scraping with built-in fingerprints
+        const scraped = await scrapeInstagramData(targetUser);
+
+        // Update database with scraped profile stats
+        await saveProfileToDb(scraped.profile);
+
+        console.log(`✅ [User Profile Cron] Successfully processed and synced profile for: "${targetUser}"`);
+      } catch (scrapeErr) {
+        console.error(`❌ [User Profile Cron Scraper Error] Failed to crawl profile for "${targetUser}":`, scrapeErr.message);
+
+        // Fail-safe: Mark profile as processed to avoid getting stuck in process loop
+        await prisma.instagram_user.update({
+          where: { id: user.id },
+          data: {
+            is_processed: true,
+            updated_at: new Date()
+          }
+        });
+      }
+
+      // Rest a bit between requests to emulate human browsing behaviors
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  } catch (error) {
+    console.error(`❌ [User Profile Cron Execution Error] Main loop crash:`, error.message);
+  } finally {
+    isUserProfileCronRunning = false;
+    console.log(`\n======================================================`);
+    console.log(`🏁 [User Profile Cron] Run complete.`);
+    console.log(`======================================================\n`);
+  }
+}
+
+/**
+ * Initializes and schedules the cron jobs.
  */
 export function initCronJobs() {
   console.log(`[Cron Manager] Initializing scheduled crawlers...`);
   
-  // Schedule every 1 minute
+  // Schedule Reels Crawler every 1 minute
   nodeCron.schedule('*/1 * * * *', async () => {
-    console.log(`[Cron Manager] Triggering scheduled cron run...`);
+    console.log(`[Cron Manager] Triggering scheduled Reels cron run...`);
     await runCronImport();
   });
 
-  console.log(`[Cron Manager] Instagram Crawler cron job registered successfully! Run schedule: Every 1 Minute`);
+  // Schedule User Profile Crawler every 1 minute
+  nodeCron.schedule('*/1 * * * *', async () => {
+    console.log(`[Cron Manager] Triggering scheduled User Profile cron run...`);
+    await runUserProfileCron();
+  });
+
+  console.log(`[Cron Manager] Instagram cron jobs registered successfully! Run schedule: Every 1 Minute`);
   
-  // Trigger a run immediately on startup in background
-  console.log(`[Cron Manager] Performing immediate startup crawl in background...`);
+  // Trigger runs immediately on startup in background
+  console.log(`[Cron Manager] Performing immediate startup crawls in background...`);
   runCronImport().catch(err => {
-    console.error(`❌ [Cron Manager Startup Error]:`, err.message);
+    console.error(`❌ [Cron Manager Reels Startup Error]:`, err.message);
+  });
+  
+  runUserProfileCron().catch(err => {
+    console.error(`❌ [Cron Manager User Profile Startup Error]:`, err.message);
   });
 }

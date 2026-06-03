@@ -65,6 +65,10 @@ model instagram_user {
   updated_at            DateTime?         @default(now()) @db.Timestamp(0)
   bio                   String?           @db.Text
   instagram_reels       instagram_reels[]
+  follower              Int?
+  following             Int?
+  posts                 Int?
+  instagram_user_profile String?          @db.Text
 
   @@index([instagram_profile_url], map: "instagram_profile_url")
   @@index([username], map: "username")

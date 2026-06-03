@@ -109,6 +109,18 @@ export async function saveProfileToDb(profileData) {
   const cleanLastName = stripNonBmpChars(lastName);
   const cleanBio = stripNonBmpChars(profileData.bio);
 
+  // Upload profile picture to Cloudflare R2 if present
+  let r2ProfilePicUrl = null;
+  if (profileData.profilePicUrl) {
+    try {
+      const uploadRes = await tryUploadToR2(profileData.profilePicUrl, 'profile', cleanUsername);
+      r2ProfilePicUrl = uploadRes.url;
+    } catch (err) {
+      console.error(`[Database] R2 upload failed for @${cleanUsername} profile picture:`, err.message);
+      r2ProfilePicUrl = profileData.profilePicUrl; // Fallback
+    }
+  }
+
   const existing = await prisma.instagram_user.findFirst({
     where: { username: cleanUsername }
   });
@@ -122,6 +134,10 @@ export async function saveProfileToDb(profileData) {
         bio: cleanBio || existing.bio,
         instagram_profile_url: `https://www.instagram.com/${cleanUsername}/`,
         is_processed: true,
+        follower: profileData.followersCount !== undefined ? profileData.followersCount : existing.follower,
+        following: profileData.followingCount !== undefined ? profileData.followingCount : existing.following,
+        posts: profileData.postsCount !== undefined ? profileData.postsCount : existing.posts,
+        instagram_user_profile: r2ProfilePicUrl !== null ? r2ProfilePicUrl : existing.instagram_user_profile,
         updated_at: new Date(),
       }
     });
@@ -134,6 +150,10 @@ export async function saveProfileToDb(profileData) {
         bio: cleanBio,
         instagram_profile_url: `https://www.instagram.com/${cleanUsername}/`,
         is_processed: true,
+        follower: profileData.followersCount !== undefined ? profileData.followersCount : null,
+        following: profileData.followingCount !== undefined ? profileData.followingCount : null,
+        posts: profileData.postsCount !== undefined ? profileData.postsCount : null,
+        instagram_user_profile: r2ProfilePicUrl,
         created_at: new Date(),
         updated_at: new Date()
       }
