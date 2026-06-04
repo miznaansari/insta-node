@@ -1,4 +1,4 @@
-import { PlaywrightCrawler } from 'crawlee';
+import { PlaywrightCrawler, Configuration } from 'crawlee';
 import { chromium } from 'playwright';
 import { uploadBufferToR2, isValidVideoBuffer, isInstagramCdnUrl } from './r2.js';
 import fs from 'fs';
@@ -276,7 +276,7 @@ export async function scrapeInstagramData(targetUsername) {
     failedRequestHandler({ request, log }) {
       log.error(`[Scraper] Request ${request.url} failed completely.`);
     },
-  });
+  }, new Configuration({ persistStorage: false }));
 
   await crawler.run([`https://www.instagram.com/${username}/`]);
 

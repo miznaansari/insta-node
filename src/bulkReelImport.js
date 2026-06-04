@@ -1,4 +1,4 @@
-import { PlaywrightCrawler } from 'crawlee';
+import { PlaywrightCrawler, Configuration } from 'crawlee';
 import { scrapeSingleReelDirect, extractUsername, extractShortcode } from './scraper.js';
 import { findOrCreateProfile, saveReelsToDb, prisma } from './db.js';
 import { isValidVideoBuffer } from './r2.js';
@@ -232,7 +232,7 @@ export const handleBulkImportStream = async (req, res) => {
       job.results.push({ shortcode, success: false, error: error.message });
       res.write(`data: ${JSON.stringify(progressData)}\n\n`);
     }
-  });
+  }, new Configuration({ persistStorage: false }));
 
   const requests = job.shortcodes.map(shortcode => ({
     url: `https://www.instagram.com/reel/${shortcode}/`,
