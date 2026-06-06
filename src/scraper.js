@@ -1,8 +1,22 @@
-import { PlaywrightCrawler, Configuration } from 'crawlee';
+import { PlaywrightCrawler, Configuration, ProxyConfiguration } from 'crawlee';
 import { chromium } from 'playwright';
 import { uploadBufferToR2, isValidVideoBuffer, isInstagramCdnUrl } from './r2.js';
 import fs from 'fs';
 import path from 'path';
+
+/**
+ * Resolves the proxy configuration from environment variables if defined.
+ * @returns {ProxyConfiguration|undefined}
+ */
+export function getProxyConfiguration() {
+  const proxyUrls = process.env.PROXY_URLS ? process.env.PROXY_URLS.split(',').map(p => p.trim()).filter(Boolean) : [];
+  if (proxyUrls.length > 0) {
+    console.log(`[Proxy] Initializing ProxyConfiguration with ${proxyUrls.length} proxy URL(s).`);
+    return new ProxyConfiguration({ proxyUrls });
+  }
+  return undefined;
+}
+
 
 /**
  * Extracts the username from an Instagram profile URL or a raw username string.
@@ -91,6 +105,10 @@ export async function scrapeInstagramData(targetUsername) {
   console.log(`[Scraper] Initializing PlaywrightCrawler for: ${username}`);
 
   const crawler = new PlaywrightCrawler({
+    useSessionPool: true,
+    sessionPoolOptions: {
+      maxPoolSize: 5,
+    },
     headless: true,
     maxRequestsPerCrawl: 1,
     browserPoolOptions: {
@@ -107,8 +125,24 @@ export async function scrapeInstagramData(targetUsername) {
         ],
       },
     },
-    async requestHandler({ page, log }) {
+    async requestHandler({ page, session, log }) {
       log.info(`[Scraper] Accessing Instagram profile page for ${username}`);
+
+      // Request interceptor to block analytics/trackers (reducing telemetry fingerprints)
+      await page.route('**/*', async (route) => {
+        const url = route.request().url();
+        if (
+          url.includes('graph.instagram.com/logging_client') ||
+          url.includes('instagram.com/logging_client') ||
+          url.includes('/api/v1/ads/') ||
+          url.includes('facebook.com/tr') ||
+          url.includes('google-analytics.com')
+        ) {
+          await route.abort();
+        } else {
+          await route.continue();
+        }
+      });
 
       // Navigate with human-like user agent
       await page.setExtraHTTPHeaders({
@@ -124,6 +158,25 @@ export async function scrapeInstagramData(targetUsername) {
         });
       } catch (gotoErr) {
         log.warning(`[Scraper] Initial navigation issue: ${gotoErr.message}. Attempting to proceed.`);
+      }
+
+      // Check if page redirected to login page (Instagram blocking)
+      if (page.url().includes('instagram.com/accounts/login')) {
+        log.error(`❌ [Scraper Blocked] Redirected to login page for user "@${username}". Retiring session.`);
+        session.retire();
+        throw new Error('Instagram blocked scraping: redirected to login page.');
+      }
+
+      // Simulate basic human interaction telemetry: scrolling down and up slightly
+      try {
+        log.info(`[Scraper] Simulating basic human interaction...`);
+        await page.evaluate(async () => {
+          window.scrollBy(0, 300);
+          await new Promise(r => setTimeout(r, 600));
+          window.scrollBy(0, -100);
+        });
+      } catch (e) {
+        // ignore telemetry simulation errors
       }
 
       // Wait a short duration to ensure client-side code loads
@@ -306,12 +359,12 @@ export function extractShortcode(urlOrShortcode) {
     if (str.startsWith('http://') || str.startsWith('https://')) {
       const url = new URL(str);
       const pathParts = url.pathname.split('/').filter(Boolean);
-      
+
       const reelIndex = pathParts.indexOf('reel');
       if (reelIndex !== -1 && pathParts[reelIndex + 1]) {
         return pathParts[reelIndex + 1];
       }
-      
+
       const pIndex = pathParts.indexOf('p');
       if (pIndex !== -1 && pathParts[pIndex + 1]) {
         return pathParts[pIndex + 1];
@@ -333,8 +386,8 @@ export function extractShortcode(urlOrShortcode) {
 function findMediaInObject(obj, shortcode) {
   if (!obj || typeof obj !== 'object') return null;
 
-  if ((obj.code === shortcode || obj.shortcode === shortcode) && 
-      (obj.video_versions || obj.image_versions2 || obj.display_url || obj.display_uri)) {
+  if ((obj.code === shortcode || obj.shortcode === shortcode) &&
+    (obj.video_versions || obj.image_versions2 || obj.display_url || obj.display_uri)) {
     let mediaUrl = null;
     let thumbnailUrl = null;
 
@@ -418,12 +471,12 @@ export async function scrapeSingleReelDirect(page, shortcode) {
         const resUrl = response.url();
         const headers = response.headers();
         const contentType = headers['content-type'] || '';
-        
+
         // Catch MP4/dynamic video streams
         if (
-          contentType.includes('video/') || 
-          resUrl.includes('.mp4') || 
-          resUrl.includes('/videoplayback') || 
+          contentType.includes('video/') ||
+          resUrl.includes('.mp4') ||
+          resUrl.includes('/videoplayback') ||
           (contentType.includes('application/octet-stream') && (resUrl.includes('bytestart=') || resUrl.includes('bytelength=')))
         ) {
           const buffer = await response.body();
@@ -469,13 +522,13 @@ export async function scrapeSingleReelDirect(page, shortcode) {
         video.muted = true; // Muting is REQUIRED to satisfy browser autoplay policy without user interaction
         video.play().catch((e) => console.log('[Scraper Browser Context] video.play() failed:', e.message));
       }
-      
+
       // Click play overlay button if present
       const playBtn = document.querySelector('[role="button"][aria-label*="Play"], [class*="PlayButton"]');
       if (playBtn) {
         playBtn.click();
       }
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (playErr) {
     // Ignore context execution errors
   }
@@ -640,7 +693,7 @@ export async function scrapeSingleReelDirect(page, shortcode) {
       console.log(`\n==========================================`);
       console.log(`[BULK IMPORT] Step 2: Downloading CDN/Blob video inside browser context: "${mediaUrl}"`);
       console.log(`==========================================\n`);
-      
+
       const downloadResult = await page.evaluate(async (targetUrl) => {
         try {
           const res = await fetch(targetUrl);
@@ -648,7 +701,7 @@ export async function scrapeSingleReelDirect(page, shortcode) {
             throw new Error(`HTTP ${res.status} - ${res.statusText}`);
           }
           const blob = await res.blob();
-          
+
           return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => {
@@ -671,13 +724,13 @@ export async function scrapeSingleReelDirect(page, shortcode) {
           const base64Str = base64Parts[1];
           const buffer = Buffer.from(base64Str, 'base64');
           const contentType = downloadResult.contentType;
-          
+
           if (isValidVideoBuffer(buffer)) {
             let extension = 'mp4';
             if (contentType.includes('quicktime')) {
               extension = 'mov';
             }
-            
+
             const key = `reels/${shortcode}.${extension}`;
             console.log(`\n==========================================`);
             console.log(`[BULK IMPORT] Step 3: Uploading browser-downloaded video Buffer (${buffer.length} bytes) to Cloudflare R2...`);
@@ -707,12 +760,12 @@ export async function scrapeSingleReelDirect(page, shortcode) {
       const largestChunk = videoChunks[0];
       const buffer = largestChunk.buffer;
       const contentType = largestChunk.contentType || 'video/mp4';
-      
+
       let extension = 'mp4';
       if (contentType.includes('quicktime')) {
         extension = 'mov';
       }
-      
+
       const key = `reels/${shortcode}.${extension}`;
       console.log(`\n==========================================`);
       console.log(`[BULK IMPORT] Step 2 (Fallback): Found ${videoChunks.length} intercepted network chunks. Using largest chunk (${buffer.length} bytes) as download.`);
@@ -736,12 +789,12 @@ export async function scrapeSingleReelDirect(page, shortcode) {
   if (thumbnailUrl && thumbnailUrl.startsWith('blob:')) {
     try {
       console.log(`[Scraper] Detected blob: thumbnailUrl "${thumbnailUrl}" for shortcode "${shortcode}". Resolving inside browser...`);
-      
+
       const blobResult = await page.evaluate(async (blobUrl) => {
         try {
           const res = await fetch(blobUrl);
           const blob = await res.blob();
-          
+
           return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => {
@@ -764,14 +817,14 @@ export async function scrapeSingleReelDirect(page, shortcode) {
           const base64Str = base64Parts[1];
           const buffer = Buffer.from(base64Str, 'base64');
           const contentType = blobResult.contentType;
-          
+
           let extension = 'jpg';
           if (contentType.includes('png')) {
             extension = 'png';
           } else if (contentType.includes('webp')) {
             extension = 'webp';
           }
-          
+
           const key = `thumbnails/${shortcode}.${extension}`;
           console.log(`[Scraper] Uploading resolved blob thumbnail Buffer (${buffer.length} bytes) to R2 with key "${key}"...`);
           const customUrl = await uploadBufferToR2(buffer, key, contentType);
@@ -839,7 +892,7 @@ export async function scrapeMultipleReelsDirect(shortcodes, jobState, onProgress
 
       try {
         const data = await scrapeSingleReelDirect(page, shortcode);
-        
+
         if (jobState && jobState.cancelled) break;
 
         if (onProgress) {
@@ -847,7 +900,7 @@ export async function scrapeMultipleReelsDirect(shortcodes, jobState, onProgress
         }
       } catch (err) {
         console.error(`[Scraper] Error crawling shortcode ${shortcode}:`, err.message);
-        
+
         if (jobState && jobState.cancelled) break;
 
         if (onProgress) {
@@ -855,12 +908,12 @@ export async function scrapeMultipleReelsDirect(shortcodes, jobState, onProgress
         }
       } finally {
         // Always close the page tab to avoid memory/network leak
-        await page.close().catch(() => {});
+        await page.close().catch(() => { });
       }
     }
   } finally {
-    await context.close().catch(() => {});
-    await browser.close().catch(() => {});
+    await context.close().catch(() => { });
+    await browser.close().catch(() => { });
     console.log(`[Scraper] Direct list crawling browser and context closed.`);
   }
 }

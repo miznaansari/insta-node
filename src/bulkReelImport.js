@@ -2,6 +2,7 @@ import { PlaywrightCrawler, Configuration } from 'crawlee';
 import { scrapeSingleReelDirect, extractUsername, extractShortcode } from './scraper.js';
 import { findOrCreateProfile, saveReelsToDb, prisma } from './db.js';
 import { isValidVideoBuffer } from './r2.js';
+import { handleCronFailure, resetCronFailures } from './cron.js';
 
 // In-memory active import jobs store
 export const bulkImportJobs = new Map();
@@ -119,6 +120,10 @@ export const handleBulkImportStream = async (req, res) => {
 
   // Begin sequential crawling of the specified reels using PlaywrightCrawler from Crawlee
   const crawler = new PlaywrightCrawler({
+    useSessionPool: true,
+    sessionPoolOptions: {
+      maxPoolSize: 10,
+    },
     headless: true,
     browserPoolOptions: {
       useFingerprints: true, // Use realistic fingerprints to bypass anti-bot challenges
@@ -136,8 +141,8 @@ export const handleBulkImportStream = async (req, res) => {
       },
     },
     maxConcurrency: 1, // Sequential crawling to avoid aggressive throttling
-    maxRequestRetries: 1,
-    requestHandlerTimeoutSecs: 60,
+    maxRequestRetries: 2,
+    requestHandlerTimeoutSecs: 90,
 
     preNavigationHooks: [
       async ({ page }) => {
@@ -171,10 +176,26 @@ export const handleBulkImportStream = async (req, res) => {
           }
         };
         page.on('response', page.videoResponseHandler);
+
+        // Request interceptor to block analytics/trackers (reducing telemetry fingerprints)
+        await page.route('**/*', async (route) => {
+          const url = route.request().url();
+          if (
+            url.includes('graph.instagram.com/logging_client') ||
+            url.includes('instagram.com/logging_client') ||
+            url.includes('/api/v1/ads/') ||
+            url.includes('facebook.com/tr') ||
+            url.includes('google-analytics.com')
+          ) {
+            await route.abort();
+          } else {
+            await route.continue();
+          }
+        });
       }
     ],
 
-    async requestHandler({ page, request, log }) {
+    async requestHandler({ page, request, session, log }) {
       const { shortcode } = request.userData;
 
       if (job.cancelled) {
@@ -189,10 +210,37 @@ export const handleBulkImportStream = async (req, res) => {
 
       page.setDefaultNavigationTimeout(25000);
 
+      // Add randomized delay before navigation to simulate human browsing (25 to 55 seconds)
+      const delayMs = Math.floor(Math.random() * (55000 - 25000 + 1)) + 25000;
+      log.info(`[Bulk Importer] Waiting ${Math.round(delayMs / 1000)}s before accessing page to evade bot detection...`);
+      await page.waitForTimeout(delayMs);
+
       // Perform extraction (scrapeSingleReelDirect will reuse page.videoChunks and skip page.goto if already navigated)
       const data = await scrapeSingleReelDirect(page, shortcode);
       
       if (job.cancelled) return;
+
+      // Check if page redirected to login page (Instagram blocking)
+      if (page.url().includes('instagram.com/accounts/login')) {
+        log.error(`❌ [Bulk Importer Blocked] Redirected to login page for shortcode "${shortcode}". Retiring session.`);
+        session.retire();
+        throw new Error('Instagram blocked scraping: redirected to login page.');
+      }
+
+      // Simulate basic human interaction telemetry: scrolling down and up slightly
+      try {
+        log.info(`[Bulk Importer] Simulating basic human interaction...`);
+        await page.evaluate(async () => {
+          window.scrollBy(0, 400);
+          await new Promise(r => setTimeout(r, 800));
+          window.scrollBy(0, -200);
+        });
+      } catch (e) {
+        // ignore telemetry simulation errors
+      }
+
+      // Reset the failures tracker on a successful crawl
+      resetCronFailures();
 
       // Persist the crawled reel to the database linked to the profile ID
       let savedReel = data;
@@ -220,6 +268,9 @@ export const handleBulkImportStream = async (req, res) => {
       const { shortcode } = request.userData;
       log.error(`[Bulk Importer] Crawlee failed crawling shortcode ${shortcode}: ${error.message}`);
       
+      // Track failure statistics for cooldown triggers
+      handleCronFailure(error.message || 'Bulk import request failed');
+
       if (job.cancelled) return;
 
       const progressData = {

@@ -1,9 +1,50 @@
 import nodeCron from 'node-cron';
-import { chromium } from 'playwright';
+import { PlaywrightCrawler, Configuration } from 'crawlee';
 import { prisma, findOrCreateUser, saveReelsToDb, saveProfileToDb } from './db.js';
-import { scrapeSingleReelDirect, scrapeInstagramData, extractUsername } from './scraper.js';
+import { scrapeSingleReelDirect, scrapeInstagramData, extractUsername, getProxyConfiguration } from './scraper.js';
 
 let isCronRunning = false;
+let consecutiveFailures = 0;
+let cronCooldownUntil = null;
+
+/**
+ * Checks if the cron is currently cooling down.
+ * @returns {boolean}
+ */
+export function checkCronCooldown() {
+  if (cronCooldownUntil && Date.now() < cronCooldownUntil) {
+    const minutesLeft = Math.ceil((cronCooldownUntil - Date.now()) / (60 * 1000));
+    console.warn(`[Cron Manager] ⏳ Cron is cooling down. Skipping run. ${minutesLeft} minute(s) remaining.`);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Records a request failure and sets cooldown if we reach consecutive threshold.
+ * @param {string} reason
+ */
+export function handleCronFailure(reason) {
+  consecutiveFailures++;
+  console.warn(`[Cron Manager] ⚠️ Failure recorded (${consecutiveFailures}/2). Reason: ${reason}`);
+  if (consecutiveFailures >= 2) {
+    const cooldownMins = Math.floor(Math.random() * 6) + 10; // 10 to 15
+    cronCooldownUntil = Date.now() + cooldownMins * 60 * 1000;
+    consecutiveFailures = 0; // reset counter
+    console.error(`[Cron Manager] 🛑 2 consecutive failures detected. Cooling down all cron jobs for ${cooldownMins} minutes (until ${new Date(cronCooldownUntil).toLocaleTimeString()}).`);
+  }
+}
+
+/**
+ * Resets the consecutive failure counter upon a successful scrape.
+ */
+export function resetCronFailures() {
+  if (consecutiveFailures > 0) {
+    console.log(`[Cron Manager] 😊 Successful scrape completed. Resetting failure counter (was ${consecutiveFailures}).`);
+    consecutiveFailures = 0;
+  }
+}
+
 
 /**
  * Parses raw Instagram URLs to extract username and shortcode.
@@ -87,13 +128,14 @@ export async function runCronImport() {
     return;
   }
 
+  if (checkCronCooldown()) {
+    return;
+  }
+
   isCronRunning = true;
   console.log(`\n======================================================`);
   console.log(`⏱️ [Cron Importer] Starting DB-driven Instagram extraction run...`);
   console.log(`======================================================`);
-
-  let browser = null;
-  let context = null;
 
   try {
     // 1. Fetch unprocessed reels from the database
@@ -109,81 +151,160 @@ export async function runCronImport() {
       return;
     }
 
-    console.log(`[Cron Importer] Found ${pendingReels.length} unprocessed reels. Launching browser pool...`);
+    console.log(`[Cron Importer] Found ${pendingReels.length} unprocessed reels. Launching Crawlee PlaywrightCrawler...`);
 
-    // 2. Open Chromium browser context once for sequential processing
-    browser = await chromium.launch({
+    const crawler = new PlaywrightCrawler({
+      useSessionPool: true,
+      sessionPoolOptions: {
+        maxPoolSize: 10,
+      },
       headless: true,
-      args: [
-        '--disable-gpu',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process',
-        '--autoplay-policy=no-user-gesture-required'
+      browserPoolOptions: {
+        useFingerprints: true, // Use realistic fingerprints to bypass anti-bot challenges
+      },
+      launchContext: {
+        launchOptions: {
+          args: [
+            '--disable-gpu',
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--autoplay-policy=no-user-gesture-required'
+          ],
+        },
+      },
+      maxConcurrency: 1, // Sequential crawling to avoid aggressive throttling
+      maxRequestRetries: 2,
+      requestHandlerTimeoutSecs: 90,
+
+      preNavigationHooks: [
+        async ({ page }) => {
+          // Setup response interceptor for streaming video bytes
+          page.videoChunks = [];
+          page.videoResponseHandler = async (response) => {
+            try {
+              const resUrl = response.url();
+              const headers = response.headers();
+              const contentType = headers['content-type'] || '';
+              
+              // Catch MP4/dynamic video streams
+              if (
+                contentType.includes('video/') || 
+                resUrl.includes('.mp4') || 
+                resUrl.includes('/videoplayback') || 
+                (contentType.includes('application/octet-stream') && (resUrl.includes('bytestart=') || resUrl.includes('bytelength=')))
+              ) {
+                const buffer = await response.body();
+                const { isValidVideoBuffer } = await import('./r2.js');
+                if (isValidVideoBuffer(buffer)) {
+                  page.videoChunks.push({
+                    url: resUrl,
+                    buffer,
+                    size: buffer.length,
+                    contentType: contentType
+                  });
+                }
+              }
+            } catch (err) {
+              // Body can be drained or closed, skip
+            }
+          };
+          page.on('response', page.videoResponseHandler);
+
+          // Request interceptor to block analytics/trackers (reducing telemetry fingerprints)
+          await page.route('**/*', async (route) => {
+            const url = route.request().url();
+            if (
+              url.includes('graph.instagram.com/logging_client') ||
+              url.includes('instagram.com/logging_client') ||
+              url.includes('/api/v1/ads/') ||
+              url.includes('facebook.com/tr') ||
+              url.includes('google-analytics.com')
+            ) {
+              await route.abort();
+            } else {
+              await route.continue();
+            }
+          });
+        }
       ],
-    });
 
-    context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 800 },
-      locale: 'en-US',
-    });
+      async requestHandler({ page, request, session, log }) {
+        const { reelId, rawVideoUrl } = request.userData;
 
-    for (let i = 0; i < pendingReels.length; i++) {
-      const reel = pendingReels[i];
-      console.log(`\n------------------------------------------------------`);
-      console.log(`[Cron Importer] [${i + 1}/${pendingReels.length}] Processing Reel ID: ${reel.id}`);
-      console.log(`[Cron Importer] Raw Video URL: "${reel.raw_video_url}"`);
+        log.info(`[Cron Importer] Processing Reel ID: ${reelId}`);
+        log.info(`[Cron Importer] Raw Video URL: "${rawVideoUrl}"`);
 
-      // Parse the raw video URL to find username and shortcode
-      const parsed = parseInstagramUrl(reel.raw_video_url);
-      if (!parsed || !parsed.shortcode) {
-        console.error(`❌ [Cron Importer] Invalid raw video URL or shortcode could not be extracted.`);
-        await prisma.instagram_reels.update({
-          where: { id: reel.id },
-          data: {
-            is_processed: true,
-            is_rejected: true,
-            reject_reason: 'Failed to parse shortcode or username from raw_video_url.',
-            updated_at: new Date()
-          }
-        });
-        continue;
-      }
+        // Parse the raw video URL to find username and shortcode
+        const parsed = parseInstagramUrl(rawVideoUrl);
+        if (!parsed || !parsed.shortcode) {
+          log.error(`❌ [Cron Importer] Invalid raw video URL or shortcode could not be extracted.`);
+          await prisma.instagram_reels.update({
+            where: { id: reelId },
+            data: {
+              is_processed: true,
+              is_rejected: true,
+              reject_reason: 'Failed to parse shortcode or username from raw_video_url.',
+              updated_at: new Date()
+            }
+          });
+          return;
+        }
 
-      const { username, shortcode } = parsed;
-      const targetUsername = username || 'unknown_creator';
+        const { username, shortcode } = parsed;
+        const targetUsername = username || 'unknown_creator';
 
-      console.log(`[Cron Importer] Extracted username: "@${targetUsername}", shortcode: "${shortcode}"`);
+        log.info(`[Cron Importer] Extracted username: "@${targetUsername}", shortcode: "${shortcode}"`);
 
-      // Find or create user to satisfy database foreign keys
-      let dbUser;
-      try {
-        dbUser = await findOrCreateUser(targetUsername);
-      } catch (userErr) {
-        console.error(`❌ [Cron Importer DB Error] Failed to find or create profile for "${targetUsername}":`, userErr.message);
-        continue;
-      }
+        // Find or create user to satisfy database foreign keys
+        let dbUser;
+        try {
+          dbUser = await findOrCreateUser(targetUsername);
+        } catch (userErr) {
+          log.error(`❌ [Cron Importer DB Error] Failed to find or create profile for "${targetUsername}": ${userErr.message}`);
+          return;
+        }
 
-      // Associate the reel to this user if not already set or mapping is different
-      if (reel.instagram_user_id !== dbUser.id) {
-        await prisma.instagram_reels.update({
-          where: { id: reel.id },
-          data: { instagram_user_id: dbUser.id }
-        });
-      }
+        // Associate the reel to this user if not already set or mapping is different
+        const existingReel = await prisma.instagram_reels.findUnique({ where: { id: reelId } });
+        if (existingReel && existingReel.instagram_user_id !== dbUser.id) {
+          await prisma.instagram_reels.update({
+            where: { id: reelId },
+            data: { instagram_user_id: dbUser.id }
+          });
+        }
 
-      const page = await context.newPage();
-      page.setDefaultNavigationTimeout(25000);
+        // Add randomized delay before navigation to simulate human browsing (25 to 55 seconds)
+        const delayMs = Math.floor(Math.random() * (55000 - 25000 + 1)) + 25000;
+        log.info(`[Cron Importer] Waiting ${Math.round(delayMs / 1000)}s before accessing page to evade bot detection...`);
+        await page.waitForTimeout(delayMs);
 
-      try {
         // Scrape page and handle download/R2 upload flow
         const scrapedData = await scrapeSingleReelDirect(page, shortcode);
 
+        // Check if page redirected to login page (Instagram blocking)
+        if (page.url().includes('instagram.com/accounts/login')) {
+          log.error(`❌ [Cron Importer Blocked] Redirected to login page for shortcode "${shortcode}". Retiring session.`);
+          session.retire();
+          throw new Error('Instagram blocked scraping: redirected to login page.');
+        }
+
+        // Simulate basic human interaction telemetry: scrolling down and up slightly
+        try {
+          log.info(`[Cron Importer] Simulating basic human interaction...`);
+          await page.evaluate(async () => {
+            window.scrollBy(0, 400);
+            await new Promise(r => setTimeout(r, 800));
+            window.scrollBy(0, -200);
+          });
+        } catch (e) {
+          // ignore telemetry simulation errors
+        }
+
         // Update database with scraped R2 links and stats
         await saveReelsToDb(dbUser.id, [{
-          id: reel.id,
+          id: reelId,
           shortcode,
           mediaUrl: scrapedData.mediaUrl,
           thumbnailUrl: scrapedData.thumbnailUrl,
@@ -202,34 +323,58 @@ export async function runCronImport() {
           }
         });
 
-        console.log(`✅ [Cron Importer] Successfully processed and synced reel shortcode: "${shortcode}"`);
-      } catch (scrapeErr) {
-        console.error(`❌ [Cron Importer Scraper Error] Failed to crawl shortcode "${shortcode}":`, scrapeErr.message);
+        // Successful scrape completed! Reset the failure counter.
+        resetCronFailures();
+
+        log.info(`✅ [Cron Importer] Successfully processed and synced reel shortcode: "${shortcode}"`);
+
+        // Extra post-scrape human-like delay
+        const postDelay = Math.floor(Math.random() * 4000) + 2000; // 2s to 6s
+        await page.waitForTimeout(postDelay);
+      },
+
+      async failedRequestHandler({ request, error, log }) {
+        const { reelId, shortcode } = request.userData;
+        log.error(`❌ [Cron Importer Scraper Error] Failed to crawl Reel ID ${reelId} (shortcode: "${shortcode || 'unknown'}"): ${error.message}`);
+
+        // Track the failure to see if we need a cooldown
+        handleCronFailure(error.message || 'Scraping failed');
 
         // Fail-safe: Mark reel as processed but rejected to avoid getting stuck in process loop
         await prisma.instagram_reels.update({
-          where: { id: reel.id },
+          where: { id: reelId },
           data: {
             is_processed: true,
             is_rejected: true,
-            reject_reason: scrapeErr.message || 'Scraping failed',
+            reject_reason: error.message || 'Scraping failed after retries',
             updated_at: new Date()
           }
         });
-      } finally {
-        await page.close().catch(() => {});
-        // Rest a bit between requests to emulate human browsing behaviors
-        await new Promise(r => setTimeout(r, 2000));
       }
-    }
+    }, new Configuration({ persistStorage: false }));
+
+    const requests = pendingReels.map(reel => {
+      const parsed = parseInstagramUrl(reel.raw_video_url);
+      const shortcode = parsed ? parsed.shortcode : '';
+      return {
+        url: `https://www.instagram.com/reel/${shortcode || 'dummy'}/`,
+        userData: {
+          reelId: reel.id,
+          rawVideoUrl: reel.raw_video_url,
+          shortcode
+        },
+        uniqueKey: `${reel.id}_${Date.now()}` // Bypass cached/duplicate key requests
+      };
+    });
+
+    await crawler.run(requests);
+
   } catch (error) {
-    console.error(`❌ [Cron Importer Execution Error] Main loop crash:`, error.message);
+    console.error(`❌ [Cron Importer Execution Error] Crawlee run crash:`, error.message);
   } finally {
-    if (context) await context.close().catch(() => {});
-    if (browser) await browser.close().catch(() => {});
     isCronRunning = false;
     console.log(`\n======================================================`);
-    console.log(`🏁 [Cron Importer] Run complete. Browser pool released.`);
+    console.log(`🏁 [Cron Importer] Run complete. Crawlee browser pool released.`);
     console.log(`======================================================\n`);
   }
 }
@@ -242,6 +387,10 @@ let isUserProfileCronRunning = false;
 export async function runUserProfileCron() {
   if (isUserProfileCronRunning) {
     console.log(`[User Profile Cron] ⏳ A user profile cron execution is already running. Skipping this cycle.`);
+    return;
+  }
+
+  if (checkCronCooldown()) {
     return;
   }
 
@@ -275,7 +424,7 @@ export async function runUserProfileCron() {
       const user = pendingUsers[i];
       console.log(`\n------------------------------------------------------`);
       console.log(`[User Profile Cron] [${i + 1}/${pendingUsers.length}] Processing User ID: ${user.id}`);
-      
+
       const targetUser = user.username || (user.instagram_profile_url ? extractUsername(user.instagram_profile_url) : null);
       console.log(`[User Profile Cron] Username: "${targetUser}"`);
 
@@ -291,6 +440,13 @@ export async function runUserProfileCron() {
         continue;
       }
 
+      // Add randomized delay before scraping to simulate human browsing (20 to 40 seconds)
+      if (i > 0) {
+        const delayMs = Math.floor(Math.random() * (40000 - 20000 + 1)) + 20000;
+        console.log(`[User Profile Cron] Waiting ${Math.round(delayMs / 1000)}s before next user crawl to evade blocks...`);
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+
       try {
         // Run standard Crawlee profile scraping with built-in fingerprints
         const scraped = await scrapeInstagramData(targetUser);
@@ -298,9 +454,15 @@ export async function runUserProfileCron() {
         // Update database with scraped profile stats
         await saveProfileToDb(scraped.profile);
 
+        // Reset failures on success
+        resetCronFailures();
+
         console.log(`✅ [User Profile Cron] Successfully processed and synced profile for: "${targetUser}"`);
       } catch (scrapeErr) {
         console.error(`❌ [User Profile Cron Scraper Error] Failed to crawl profile for "${targetUser}":`, scrapeErr.message);
+
+        // Track the failure to see if we need a cooldown
+        handleCronFailure(scrapeErr.message || 'Profile scraping failed');
 
         // Fail-safe: Mark profile as processed to avoid getting stuck in process loop
         await prisma.instagram_user.update({
@@ -311,9 +473,6 @@ export async function runUserProfileCron() {
           }
         });
       }
-
-      // Rest a bit between requests to emulate human browsing behaviors
-      await new Promise(r => setTimeout(r, 3000));
     }
   } catch (error) {
     console.error(`❌ [User Profile Cron Execution Error] Main loop crash:`, error.message);
@@ -330,7 +489,7 @@ export async function runUserProfileCron() {
  */
 export function initCronJobs() {
   console.log(`[Cron Manager] Initializing scheduled crawlers...`);
-  
+
   // Schedule Reels Crawler every 1 minute
   nodeCron.schedule('*/1 * * * *', async () => {
     console.log(`[Cron Manager] Triggering scheduled Reels cron run...`);
@@ -344,13 +503,13 @@ export function initCronJobs() {
   });
 
   console.log(`[Cron Manager] Instagram cron jobs registered successfully! Run schedule: Every 1 Minute`);
-  
+
   // Trigger runs immediately on startup in background
   console.log(`[Cron Manager] Performing immediate startup crawls in background...`);
   runCronImport().catch(err => {
     console.error(`❌ [Cron Manager Reels Startup Error]:`, err.message);
   });
-  
+
   runUserProfileCron().catch(err => {
     console.error(`❌ [Cron Manager User Profile Startup Error]:`, err.message);
   });
